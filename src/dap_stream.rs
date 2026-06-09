@@ -107,15 +107,23 @@ fn parse_dap_message(buffer: &[u8]) -> Result<Option<(DapMessage, Vec<u8>)>> {
             .parse::<usize>()
             .context("Parsing Content-Length header has failed, no length was found")?;
         let body_start_index = new_line_index + HEADER_DELIMITER_LENGTH;
+        let body_end_index = body_start_index + body_length;
 
         if buffer.len() < body_start_index + body_length {
             // Buffer does not include the full body of the message, Ok(None) since its not neceserally an error, but most likely an incomplete buffer
             return Ok(None);
         }
 
-        let body = &buffer[body_start_index..body_start_index + body_length];
-        let parsed_message = parse_dap_body(body).context("Failed to parse DAP message body")?;
-        let buffer_leftovers = Vec::from(&buffer[body_start_index + body_length + 1..buffer.len()]);
+        let body = &buffer[body_start_index..body_end_index];
+        let parsed_message = parse_dap_body(body, &buffer[0..body_end_index])
+            .context("Failed to parse DAP message body")?;
+
+        // Anything in the buffer that did not belong to the parsed message is kept as leftovers (if any)
+        let buffer_leftovers = if body_end_index == buffer.len() {
+            vec![]
+        } else {
+            Vec::from(&buffer[body_start_index + body_length + 1..buffer.len() - 1])
+        };
 
         return Ok(Some((parsed_message, buffer_leftovers)));
     }
@@ -124,8 +132,15 @@ fn parse_dap_message(buffer: &[u8]) -> Result<Option<(DapMessage, Vec<u8>)>> {
 }
 
 /// Takes a complete body and parse it as a DapMessage.
+///
+/// `body` is only the JSON part of the message (no headers, full JSON).  
+///
+/// `full_message` is full message including headers (it is kept on DapMessage for forward-passing between DapStreams).
+///
 /// Body is assuemd to be a valid JSON buffer, if JSON parsing failed or DapMessage could not be constructed, and error would be returned instead.
-fn parse_dap_body(body: &[u8]) -> Result<DapMessage> {
+fn parse_dap_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
+    println!("{}", String::from_utf8_lossy(body));
+
     let parsed_json: serde_json::Value =
         serde_json::from_slice(body).context("Could not parse DAP message: Invalid JSON")?;
 
@@ -134,8 +149,8 @@ fn parse_dap_body(body: &[u8]) -> Result<DapMessage> {
         .context("Could not parse DAP message type")?;
 
     match message_type_str {
-        "event" => Ok(DapMessage::Event(Vec::from(body))),
-        "response" => Ok(DapMessage::Response(Vec::from(body))),
+        "event" => Ok(DapMessage::Event(Vec::from(full_message))),
+        "response" => Ok(DapMessage::Response(Vec::from(full_message))),
         "request" => {
             let command_type_str = parsed_json["command"].as_str().context(
                 "Could not parse request: a Request should have a command attached to it as a string",
@@ -160,7 +175,7 @@ fn parse_dap_body(body: &[u8]) -> Result<DapMessage> {
             };
 
             Ok(DapMessage::Request {
-                raw_bytes: Vec::from(body),
+                raw_bytes: Vec::from(full_message),
                 command,
             })
         }
@@ -170,19 +185,81 @@ fn parse_dap_body(body: &[u8]) -> Result<DapMessage> {
 
 #[cfg(test)]
 mod tests {
-    use crate::dap_stream::{DapMessage, RequestCommandTypes, parse_dap_body};
+    use crate::dap_stream::{DapMessage, RequestCommandTypes, parse_dap_message};
 
+    fn make_dap_message(body: &str) -> Vec<u8> {
+        format!("Content-Length: {}\r\n\r\n{}", body.len(), body).into_bytes()
+    }
+
+    // parse_dap_message tests
     #[test]
-    fn test_parse_dap_body() {
-        let dap_message =
-            parse_dap_body(b"{\"seq\": 1, \"type\": \"request\", \"command\": \"initialize\"}")
-                .unwrap();
+    fn test_parse_complete_request() {
+        let buffer = make_dap_message(r#"{"seq":1,"type":"request","command":"initialize"}"#);
+        let parsed = parse_dap_message(&buffer).unwrap();
 
-        match dap_message {
-            DapMessage::Request { command, .. } => {
-                assert_eq!(command, RequestCommandTypes::Initialize);
+        match parsed {
+            Some((message, leftovers)) => {
+                assert_eq!(leftovers.len(), 0); // Complete message, should not have leftovers
+
+                match message {
+                    DapMessage::Request { command, .. } => {
+                        assert_eq!(command, RequestCommandTypes::Initialize);
+                    }
+                    _ => panic!("Message type is expected to be a Request"),
+                }
             }
-            _ => panic!("Expected message type to be ::Request"),
+            None => panic!("Expected parsing to result in DapMessage"),
         }
     }
+
+    #[test]
+    fn test_parse_complete_event() {
+        let buffer = make_dap_message(r#"{"seq":1,"type":"event","event":"initialized"}"#);
+        let parsed = parse_dap_message(&buffer).unwrap();
+
+        match parsed {
+            Some((message, leftovers)) => {
+                assert_eq!(leftovers.len(), 0); // Complete message, should not have leftovers
+                assert_eq!(message, DapMessage::Event(buffer));
+            }
+            None => panic!("Expected parsing to result in DapMessage"),
+        }
+    }
+
+    #[test]
+    fn test_parse_complete_response() {}
+
+    #[test]
+    fn test_parse_incomplete_body_returns_none() {}
+
+    #[test]
+    fn test_parse_no_header_returns_none() {}
+
+    #[test]
+    fn test_parse_empty_buffer_returns_none() {}
+
+    #[test]
+    fn test_parse_message_with_leftovers() {}
+
+    #[test]
+    fn test_parse_set_breakpoints_with_source_path() {}
+
+    #[test]
+    fn test_parse_unknown_command_returns_pass_forward() {}
+
+    #[test]
+    fn test_parse_invalid_content_length_returns_error() {}
+
+    // parse_dap_body tests
+    #[test]
+    fn test_parse_body_invalid_json_returns_error() {}
+
+    #[test]
+    fn test_parse_body_missing_type_returns_error() {}
+
+    #[test]
+    fn test_parse_body_request_missing_command_returns_error() {}
+
+    #[test]
+    fn test_parse_body_set_breakpoints_missing_source_path_returns_error() {}
 }
