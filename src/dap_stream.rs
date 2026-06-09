@@ -9,7 +9,7 @@ pub enum RequestCommandTypes {
     Initialize,
     Attach,
     Launch,
-    SetBreakpoints(String),
+    SetBreakpoints(String), // String is the file_path
     SetDataBreakpoints,
     SetExecutionBreakpoints,
     SetFunctionBreakpoints,
@@ -122,7 +122,7 @@ fn parse_dap_message(buffer: &[u8]) -> Result<Option<(DapMessage, Vec<u8>)>> {
         let buffer_leftovers = if body_end_index == buffer.len() {
             vec![]
         } else {
-            Vec::from(&buffer[body_start_index + body_length + 1..buffer.len() - 1])
+            Vec::from(&buffer[body_start_index + body_length..buffer.len()])
         };
 
         return Ok(Some((parsed_message, buffer_leftovers)));
@@ -202,8 +202,9 @@ mod tests {
                 assert_eq!(leftovers.len(), 0); // Complete message, should not have leftovers
 
                 match message {
-                    DapMessage::Request { command, .. } => {
+                    DapMessage::Request { command, raw_bytes } => {
                         assert_eq!(command, RequestCommandTypes::Initialize);
+                        assert_eq!(raw_bytes, buffer);
                     }
                     _ => panic!("Message type is expected to be a Request"),
                 }
@@ -227,19 +228,70 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_complete_response() {}
+    fn test_parse_complete_response() {
+        let buffer =
+            make_dap_message(r#"{"seq":1,"type":"response","request_seq":1,"success":true}"#);
+        let parsed = parse_dap_message(&buffer).unwrap();
+
+        match parsed {
+            Some((message, leftovers)) => {
+                assert_eq!(leftovers.len(), 0); // Complete message, should not have leftovers
+                assert_eq!(message, DapMessage::Response(buffer));
+            }
+            None => panic!("Expected parsing to result in DapMessage"),
+        }
+    }
 
     #[test]
-    fn test_parse_incomplete_body_returns_none() {}
+    fn test_parse_incomplete_body_returns_none() {
+        let buffer = b"Content-Length: 999\r\n\r\n{\"seq\":1,\"type\":\"reque";
+        let parsed = parse_dap_message(buffer).unwrap();
+
+        assert_eq!(parsed, None);
+    }
 
     #[test]
-    fn test_parse_no_header_returns_none() {}
+    fn test_parse_no_header_returns_none() {
+        let buffer = r#"{"seq":1,"type":"request","command":"initialize"}"#.as_bytes();
+        let parsed = parse_dap_message(buffer).unwrap();
+
+        assert_eq!(parsed, None);
+    }
 
     #[test]
-    fn test_parse_empty_buffer_returns_none() {}
+    fn test_parse_empty_buffer_returns_none() {
+        let buffer = b"";
+        let parsed = parse_dap_message(buffer).unwrap();
+
+        assert_eq!(parsed, None);
+    }
 
     #[test]
-    fn test_parse_message_with_leftovers() {}
+    fn test_parse_message_with_leftovers() {
+        let initial_message =
+            make_dap_message(r#"{"seq":1,"type":"request","command":"initialize"}"#);
+        let follow_up_message = make_dap_message(r#"{"seq":2,"type":"event","event":"stopped"}"#);
+
+        // Buffer contains two messages at once, leftovers should include the follow up message
+        let buffer = [initial_message.as_slice(), follow_up_message.as_slice()].concat();
+
+        let parsed = parse_dap_message(&buffer).unwrap();
+
+        match parsed {
+            Some((message, leftovers)) => {
+                assert_eq!(leftovers, follow_up_message);
+
+                match message {
+                    DapMessage::Request { command, raw_bytes } => {
+                        assert_eq!(command, RequestCommandTypes::Initialize);
+                        assert_eq!(raw_bytes, initial_message);
+                    }
+                    _ => panic!("Message type is expected to be a Request"),
+                }
+            }
+            None => panic!("Expected a message to be parsed succsesfully"),
+        }
+    }
 
     #[test]
     fn test_parse_set_breakpoints_with_source_path() {}
