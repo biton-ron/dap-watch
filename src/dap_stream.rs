@@ -1,4 +1,4 @@
-use anyhow::{Context, Ok, Result, bail};
+use anyhow::{Context, Result, bail};
 use tokio::{io::AsyncReadExt, net::TcpStream};
 
 /// We only specify in this enum commands are required for state preservation.
@@ -40,12 +40,19 @@ impl DapStream {
         }
     }
 
-    pub async fn read(&mut self) -> Result<Vec<u8>> {
+    pub async fn read(&mut self) -> Result<DapMessage> {
         loop {
-            if self.buffer.len() >= 500 {
-                let message = self.buffer.clone();
-                self.buffer.clear();
-                return Ok(message);
+            let parsed = parse_dap_message(&self.buffer);
+
+            match parsed {
+                Ok(None) => {}
+                Ok(Some((message, leftovers))) => {
+                    self.buffer = leftovers;
+                    return Ok(message);
+                }
+                Err(e) => {
+                    return Err(e);
+                }
             }
 
             let stream = match &mut self.stream {
@@ -61,7 +68,7 @@ impl DapStream {
             {
                 0 => {
                     self.stream = None;
-                    return Ok(Vec::<u8>::new());
+                    continue;
                 }
                 n => n,
             };

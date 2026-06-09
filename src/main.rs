@@ -15,6 +15,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let message = ide_stream.read().await?;
 
         println!("Your message is:");
-        println!("{}", String::from_utf8_lossy(&message));
+        println!("{:?}", message);
     }
 }
