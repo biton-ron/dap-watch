@@ -138,7 +138,7 @@ fn parse_dap_body(body: &[u8]) -> Result<DapMessage> {
         "response" => Ok(DapMessage::Response(Vec::from(body))),
         "request" => {
             let command_type_str = parsed_json["command"].as_str().context(
-                "Request should have a command attached to it as a string, could not parse request",
+                "Could not parse request: a Request should have a command attached to it as a string",
             )?;
 
             let command: RequestCommandTypes = match command_type_str {
