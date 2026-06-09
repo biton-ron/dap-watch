@@ -185,7 +185,7 @@ fn parse_dap_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
 
 #[cfg(test)]
 mod tests {
-    use crate::dap_stream::{DapMessage, RequestCommandTypes, parse_dap_message};
+    use crate::dap_stream::{DapMessage, RequestCommandTypes, parse_dap_body, parse_dap_message};
 
     fn make_dap_message(body: &str) -> Vec<u8> {
         format!("Content-Length: {}\r\n\r\n{}", body.len(), body).into_bytes()
@@ -274,7 +274,6 @@ mod tests {
 
         // Buffer contains two messages at once, leftovers should include the follow up message
         let buffer = [initial_message.as_slice(), follow_up_message.as_slice()].concat();
-
         let parsed = parse_dap_message(&buffer).unwrap();
 
         match parsed {
@@ -294,24 +293,92 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_set_breakpoints_with_source_path() {}
+    fn test_parse_set_breakpoints_with_source_path() {
+        let buffer = make_dap_message(
+            r#"{"seq":1,"type":"request","command":"setBreakpoints","arguments":{"source":{"path":"/test/path.rs"},"breakpoints":[{"line":10}]}}"#,
+        );
+
+        let parsed = parse_dap_message(&buffer).unwrap();
+
+        match parsed {
+            Some((message, leftovers)) => {
+                assert_eq!(leftovers.len(), 0); // Complete message, should not have leftovers
+
+                match message {
+                    DapMessage::Request { command, raw_bytes } => {
+                        assert_eq!(
+                            command,
+                            RequestCommandTypes::SetBreakpoints(String::from("/test/path.rs"))
+                        );
+                        assert_eq!(raw_bytes, buffer);
+                    }
+                    _ => panic!("Message type is expected to be a Request"),
+                }
+            }
+            None => panic!("Expected parsing to result in DapMessage"),
+        }
+    }
 
     #[test]
-    fn test_parse_unknown_command_returns_pass_forward() {}
+    fn test_parse_unknown_command_returns_pass_forward() {
+        let buffer = make_dap_message(r#"{"seq":1,"type":"request","command":"continue"}"#);
+        let parsed = parse_dap_message(&buffer).unwrap();
+
+        match parsed {
+            Some((message, leftovers)) => {
+                assert_eq!(leftovers.len(), 0); // Complete message, should not have leftovers
+
+                match message {
+                    DapMessage::Request { command, raw_bytes } => {
+                        assert_eq!(command, RequestCommandTypes::PassForward);
+                        assert_eq!(raw_bytes, buffer);
+                    }
+                    _ => panic!("Message type is expected to be a Request"),
+                }
+            }
+            None => panic!("Expected parsing to result in DapMessage"),
+        }
+    }
 
     #[test]
-    fn test_parse_invalid_content_length_returns_error() {}
+    fn test_parse_invalid_content_length_returns_error() {
+        let buffer = b"Content-Length: abc\r\n\r\n{\"seq\":1}";
+        let parsed = parse_dap_message(buffer);
+
+        assert!(parsed.is_err());
+    }
 
     // parse_dap_body tests
     #[test]
-    fn test_parse_body_invalid_json_returns_error() {}
+    fn test_parse_body_invalid_json_returns_error() {
+        let buffer = r#"not valid json at all"#.as_bytes();
+        let parsed = parse_dap_body(buffer, buffer);
+
+        assert!(parsed.is_err());
+    }
 
     #[test]
-    fn test_parse_body_missing_type_returns_error() {}
+    fn test_parse_body_missing_type_returns_error() {
+        let buffer = r#"{"seq":1,"command":"initialize"}"#.as_bytes();
+        let parsed = parse_dap_body(buffer, buffer);
+
+        assert!(parsed.is_err());
+    }
 
     #[test]
-    fn test_parse_body_request_missing_command_returns_error() {}
+    fn test_parse_body_request_missing_command_returns_error() {
+        let buffer = r#"{"seq":1,"type":"request"}"#.as_bytes();
+        let parsed = parse_dap_body(buffer, buffer);
+
+        assert!(parsed.is_err());
+    }
 
     #[test]
-    fn test_parse_body_set_breakpoints_missing_source_path_returns_error() {}
+    fn test_parse_body_set_breakpoints_missing_source_path_returns_error() {
+        let buffer =
+            r#"{"seq":1,"type":"request","command":"setBreakpoints","arguments":{}}"#.as_bytes();
+        let parsed = parse_dap_body(buffer, buffer);
+
+        assert!(parsed.is_err());
+    }
 }
