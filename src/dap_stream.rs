@@ -1,3 +1,5 @@
+///! This module is mainly for the DapStream struct, its implementation and all other supporting utlities.
+///! DapStream is a wrapper around TcpStream that can read and parse buffers as DapMessage structures.
 use anyhow::{Context, Result, bail};
 use tokio::{io::AsyncReadExt, net::TcpStream};
 
