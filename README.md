@@ -4,9 +4,10 @@
 
 ### [DapStream]
 
-[ ] Complete DapStream buffer parsing  
-[ ] Complete DapMessage parser  
-[ ] Complete DapStream read loop to result in DapMessages
+[X] Complete DapStream buffer parsing  
+[X] Complete DapMessage parser  
+[X] Complete DapStream read loop to result in DapMessages  
+[ ] Write logic
 
 ### [DapAdapter]
 
