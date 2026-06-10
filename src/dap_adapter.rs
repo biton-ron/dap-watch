@@ -1,19 +1,33 @@
-use anyhow::{Context, Result};
-use tokio::process::{Child, Command};
+use std::{env, time::Duration};
+
+use anyhow::{Context, Result, bail};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    process::{Child, Command},
+    time::sleep,
+};
+
+use crate::dap_stream::DapStream;
 
 struct AdapterConfig {}
 
-const TMP_CODELLB_PATH: &str = "~/.vscode/extensions/vadimcn.vscode-lldb-1.12.2/adapter/codelldb";
+const TMP_CODELLB_PATH: &str =
+    "/Users/ronbiton/.vscode/extensions/vadimcn.vscode-lldb-1.12.2/adapter/codelldb";
+
+const CONNECTION_LOOP_MAX_ERRORS: u16 = 30;
 
 enum AdapterStatus {
-    Pending,
-    Started,
+    Unavailable,
+    Spawned,
+    Connected,
     Replaying,
-    Live,
+    Alive,
 }
 
 pub struct DapAdapter {
+    port: Option<u16>,
     process: Option<Child>,
+    stream: Option<DapStream>,
     config: AdapterConfig,
     status: AdapterStatus,
 }
@@ -21,22 +35,73 @@ pub struct DapAdapter {
 impl DapAdapter {
     pub fn new() -> DapAdapter {
         DapAdapter {
+            port: None,
             process: None,
+            stream: None,
             config: AdapterConfig {},
-            status: AdapterStatus::Pending,
+            status: AdapterStatus::Unavailable,
         }
     }
 
     pub async fn spawn(&mut self) -> Result<()> {
+        println!("Spawning deubgger as a child process");
+        println!("current dir: {}", env::current_dir()?.display());
+
+        let port = port_selection()
+            .await
+            .context("Port selection for debugger has failed")?;
+
         let child = Command::new(TMP_CODELLB_PATH)
             .arg("--port")
-            .arg("0")
+            .arg(port.to_string())
             .spawn()
             .context("Unable to spawn debugger as a child process")?;
 
         self.process = Some(child);
-        self.status = AdapterStatus::Started;
+        self.status = AdapterStatus::Spawned;
+        self.port = Some(port);
+
+        self.connect().await?;
 
         Ok(())
     }
+
+    async fn connect(&mut self) -> Result<()> {
+        let port = self.port.context("Could not find a port to connect to")?;
+        let mut errors_count = 0;
+
+        loop {
+            let stream = TcpStream::connect(("127.0.0.1", port)).await;
+
+            match stream {
+                Ok(stream) => {
+                    self.stream = Some(DapStream::new(stream));
+                    self.status = AdapterStatus::Connected;
+                    println!("dap-watch has successfully connected to debugger adapter");
+                    return Ok(());
+                }
+                Err(_) => {
+                    errors_count += 1;
+
+                    if errors_count == CONNECTION_LOOP_MAX_ERRORS {
+                        bail!("Could not establish connection to debug adapter");
+                    }
+
+                    sleep(Duration::from_millis(50)).await;
+                }
+            }
+        }
+    }
+}
+
+async fn port_selection() -> Result<u16> {
+    let tmp_listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .context("Unable to bind a TcpListener to a port")?;
+
+    let port: u16 = tmp_listener.local_addr()?.port();
+
+    drop(tmp_listener);
+
+    return Ok(port);
 }

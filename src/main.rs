@@ -9,10 +9,11 @@ mod ide_server;
 #[tokio::main(flavor = "current_thread")]
 
 async fn main() -> Result<(), Box<dyn Error>> {
+    let mut dap_adapter = DapAdapter::new();
+    dap_adapter.spawn().await?;
+
     let mut ide = IdeServer::new(2500).await?;
     let mut ide_stream = ide.connect().await?;
-
-    let mut dap_adapter = DapAdapter::new();
 
     loop {
         let message = ide_stream.read().await?;
