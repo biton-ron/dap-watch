@@ -1,7 +1,10 @@
 ///! This module is mainly for the DapStream struct, its implementation and all other supporting utlities.
 ///! DapStream is a wrapper around TcpStream that can read and parse buffers as DapMessage structures.
 use anyhow::{Context, Result, bail};
-use tokio::{io::AsyncReadExt, net::TcpStream};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
 
 /// We only specify in this enum commands are required for state preservation.
 /// As an example - setBreakpoints is a crucial part of the state, and will be replayed to debuggers when re-spawned.
@@ -82,8 +85,15 @@ impl DapStream {
         }
     }
 
-    pub fn write() {
-        println!("write!");
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<()> {
+        let stream = self
+            .stream
+            .as_mut()
+            .context("Stream must have a value for write to work")?;
+
+        stream.write(buffer).await?;
+
+        Ok(())
     }
 }
 
