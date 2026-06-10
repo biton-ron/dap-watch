@@ -27,7 +27,6 @@ enum AdapterStatus {
 pub struct DapAdapter {
     port: Option<u16>,
     process: Option<Child>,
-    stream: Option<DapStream>,
     config: AdapterConfig,
     status: AdapterStatus,
 }
@@ -37,7 +36,6 @@ impl DapAdapter {
         DapAdapter {
             port: None,
             process: None,
-            stream: None,
             config: AdapterConfig {},
             status: AdapterStatus::Unavailable,
         }
@@ -61,12 +59,10 @@ impl DapAdapter {
         self.status = AdapterStatus::Spawned;
         self.port = Some(port);
 
-        self.connect().await?;
-
         Ok(())
     }
 
-    async fn connect(&mut self) -> Result<()> {
+    pub async fn connect(&mut self) -> Result<DapStream> {
         let port = self.port.context("Could not find a port to connect to")?;
         let mut errors_count = 0;
 
@@ -75,10 +71,13 @@ impl DapAdapter {
 
             match stream {
                 Ok(stream) => {
-                    self.stream = Some(DapStream::new(stream));
+                    let stream = DapStream::new(stream);
+
                     self.status = AdapterStatus::Connected;
+
                     println!("dap-watch has successfully connected to debugger adapter");
-                    return Ok(());
+
+                    return Ok(stream);
                 }
                 Err(_) => {
                     errors_count += 1;
