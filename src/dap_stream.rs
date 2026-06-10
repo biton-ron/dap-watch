@@ -85,13 +85,21 @@ impl DapStream {
         }
     }
 
-    pub async fn write(&mut self, buffer: &[u8]) -> Result<()> {
+    pub async fn write(&mut self, message: DapMessage) -> Result<()> {
         let stream = self
             .stream
             .as_mut()
             .context("Stream must have a value for write to work")?;
 
-        stream.write(buffer).await?;
+        match message {
+            DapMessage::Event(buffer)
+            | DapMessage::Response(buffer)
+            | DapMessage::Request {
+                raw_bytes: buffer, ..
+            } => {
+                stream.write(&buffer).await?;
+            }
+        }
 
         Ok(())
     }

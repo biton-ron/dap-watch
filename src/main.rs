@@ -21,14 +21,7 @@ async fn main() -> Result<()> {
             message = ide_stream.read() => {
                 match message {
                     Ok(message) => {
-                        match message {
-                            DapMessage::Event(buffer) | DapMessage::Response(buffer) => {
-                                adapter_stream.write(&buffer).await;
-                            },
-                            DapMessage::Request { raw_bytes, .. } => {
-                                adapter_stream.write(&raw_bytes).await;
-                            },
-                        }
+                        adapter_stream.write(message).await;
                     },
                     Err(e) => {
                         bail!(e);
@@ -38,14 +31,7 @@ async fn main() -> Result<()> {
             message = adapter_stream.read() => {
                 match message {
                     Ok(message) => {
-                        match message {
-                            DapMessage::Event(buffer) | DapMessage::Response(buffer) => {
-                                ide_stream.write(&buffer).await;
-                            },
-                            DapMessage::Request { raw_bytes, .. } => {
-                                ide_stream.write(&raw_bytes).await;
-                            },
-                        }
+                        ide_stream.write(message).await;
                     },
                     Err(e) => {
                         bail!(e);
