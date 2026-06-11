@@ -1,7 +1,7 @@
+use crate::dap_stream::DapStream;
+
 use std::io::Error;
 use tokio::net::TcpListener;
-
-use crate::dap_stream::DapStream;
 
 pub struct IdeServer {
     listener: TcpListener,

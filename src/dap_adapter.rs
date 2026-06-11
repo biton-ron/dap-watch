@@ -1,13 +1,12 @@
-use std::{env, time::Duration};
+use crate::dap_stream::DapStream;
 
 use anyhow::{Context, Result, bail};
+use std::{env, time::Duration};
 use tokio::{
     net::{TcpListener, TcpStream},
     process::{Child, Command},
     time::sleep,
 };
-
-use crate::dap_stream::DapStream;
 
 struct AdapterConfig {}
 
