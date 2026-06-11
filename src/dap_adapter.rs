@@ -52,6 +52,7 @@ impl DapAdapter {
         let child = Command::new(TMP_CODELLB_PATH)
             .arg("--port")
             .arg(port.to_string())
+            .kill_on_drop(true)
             .spawn()
             .context("Unable to spawn debugger as a child process")?;
 

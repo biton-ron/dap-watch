@@ -5,6 +5,6 @@ use tokio::time::sleep;
 async fn main() {
     loop {
         println!("test_app is iterarting...");
-        sleep(Duration::from_secs(2)).await;
+        sleep(Duration::from_secs(5)).await;
     }
 }
