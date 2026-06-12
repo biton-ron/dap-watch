@@ -23,7 +23,7 @@ pub struct Proxy {
     ide_status: IdeStatus,
 
     // Adapter
-    adapter: DapAdapter,
+    adapter: Option<DapAdapter>,
     adapter_stream: Option<DapStream>,
     adapter_status: AdapterStatus,
 
@@ -32,14 +32,14 @@ pub struct Proxy {
 }
 
 impl Proxy {
-    pub fn new(ide: IdeServer, adapter: DapAdapter, watcher: FileWatcher) -> Proxy {
+    pub fn new(ide: IdeServer, watcher: FileWatcher) -> Proxy {
         Proxy {
             state: DebugState::default(),
             ide,
             ide_stream: None,
             ide_queue: Vec::new(),
             ide_status: IdeStatus::Listening,
-            adapter,
+            adapter: None,
             adapter_stream: None,
             adapter_status: AdapterStatus::Spawned,
             watcher,
@@ -47,61 +47,48 @@ impl Proxy {
     }
 
     pub async fn run() -> Result<()> {
-        let mut proxy = Proxy::default();
+        let ide = IdeServer::new(2500)
+            .await
+            .context("Launching IdeServer has failed")?;
+
+        let watcher = FileWatcher::new(WatcherConfig {}).context("Failed to launch watcher")?;
+        let mut proxy = Proxy::new(ide, watcher);
 
         loop {
             select! {
-                ide = IdeServer::new(2500), if proxy.ide_status == IdeStatus::Pending => {
-                    proxy.ide = Some(ide.context("Launching IdeServer has failed")?);
-                },
                 stream = proxy.ide.connect(), if proxy.ide_status == IdeStatus::Listening => {
-                    proxy.ide = Some(ide.context("Launching IdeServer has failed")?);
-                }
+                    println!("IDE is connected!");
+                    proxy.ide_stream = Some(stream.context("Launching IdeServer has failed")?);
+                    proxy.ide_status = IdeStatus::Connected;
+                },
+                message = DapStream::read_stream(&mut proxy.ide_stream) => {
+                    match message {
+                        Ok(message) => {
+                            if let Some(adapter_stream) = &mut proxy.adapter_stream {
+                                let _ = adapter_stream.write(message).await;
+                            }
+                        },
+                        Err(e) => {
+                            bail!(e);
+                        }
+                    }
+                },
+                message = DapStream::read_stream(&mut proxy.adapter_stream) => {
+                    match message {
+                        Ok(message) => {
+                            if let Some(stream) = &mut proxy.ide_stream {
+                                let _ = stream.write(message).await;
+                            }
+                        },
+                        Err(e) => {
+                            bail!(e);
+                        }
+                    }
+                },
+                _ = proxy.watcher.next() => {
+                    println!("Event was detected!");
+                },
             }
         }
     }
 }
-
-// pub async fn run() -> Result<()> {
-//     let mut state = DebugState::default();
-
-//     let mut dap_adapter = DapAdapter::new();
-//     dap_adapter.spawn().await?;
-//     let mut adapter_stream = dap_adapter.connect().await?;
-
-//     let mut ide = IdeServer::new(2500).await?;
-//     let mut ide_stream = ide.connect().await?;
-
-//     let mut watcher = FileWatcher::new(WatcherConfig {}).context("Failed to launch watcher")?;
-//     println!("Watcher is live!");
-
-//     loop {
-//         tokio::select! {
-//             message = ide_stream.read() => {
-//                 match message {
-//                     Ok(message) => {
-//                         adapter_stream.write(message).await;
-//                     },
-//                     Err(e) => {
-//                         bail!(e);
-//                     }
-//                 }
-//             },
-//             message = adapter_stream.read() => {
-//                 match message {
-//                     Ok(message) => {
-//                         ide_stream.write(message).await;
-//                     },
-//                     Err(e) => {
-//                         bail!(e);
-//                     }
-//                 }
-//             },
-//             _ = watcher.next() => {
-//                 println!("Event was detected!");
-//             }
-//         }
-//     }
-
-//     Ok(())
-// }

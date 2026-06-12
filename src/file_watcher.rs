@@ -13,6 +13,7 @@ pub struct WatcherConfig {}
 pub struct FileWatcher {
     config: WatcherConfig,
     receiver: Receiver<Event>,
+    watcher: FsEventWatcher,
 }
 
 impl FileWatcher {
@@ -34,13 +35,17 @@ impl FileWatcher {
             .watch(Path::new("./src/bin"), RecursiveMode::Recursive)
             .context("Failed to watch ./src/bin directory")?;
 
-        Ok(FileWatcher { config, receiver })
+        Ok(FileWatcher {
+            config,
+            receiver,
+            watcher,
+        })
     }
 
     pub async fn next(&mut self) -> Result<()> {
         // TODO: Add debounce logic
-        self.receiver.recv().await;
-
+        let event = self.receiver.recv().await;
+        println!("Watcher event: {:?}", event);
         Ok(())
     }
 }

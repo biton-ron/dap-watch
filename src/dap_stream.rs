@@ -103,6 +103,15 @@ impl DapStream {
 
         Ok(())
     }
+
+    // Helper that wraps an optional DapStream as a Future.
+    // This makes it easier to use DapStram.read on select! loop while DapStream is optionally None (Future will not resolve if thats the case).
+    pub async fn read_stream(stream: &mut Option<DapStream>) -> Result<DapMessage> {
+        match stream {
+            Some(stream) => stream.read().await,
+            None => std::future::pending().await,
+        }
+    }
 }
 
 const HEADER_DELIMITER: &[u8] = b"\r\n\r\n";
