@@ -8,6 +8,7 @@ use tokio::{
     time::sleep,
 };
 
+#[derive(Default)]
 struct AdapterConfig {}
 
 const TMP_CODELLB_PATH: &str =
@@ -15,14 +16,17 @@ const TMP_CODELLB_PATH: &str =
 
 const CONNECTION_LOOP_MAX_ERRORS: u16 = 30;
 
-enum AdapterStatus {
-    Unavailable,
+#[derive(Default)]
+pub enum AdapterStatus {
+    #[default]
+    Pending,
     Spawned,
     Connected,
     Replaying,
     Alive,
 }
 
+#[derive(Default)]
 pub struct DapAdapter {
     port: Option<u16>,
     process: Option<Child>,
@@ -32,12 +36,7 @@ pub struct DapAdapter {
 
 impl DapAdapter {
     pub fn new() -> DapAdapter {
-        DapAdapter {
-            port: None,
-            process: None,
-            config: AdapterConfig {},
-            status: AdapterStatus::Unavailable,
-        }
+        DapAdapter::default()
     }
 
     pub async fn spawn(&mut self) -> Result<()> {

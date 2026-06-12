@@ -3,6 +3,14 @@ use crate::dap_stream::DapStream;
 use std::io::Error;
 use tokio::net::TcpListener;
 
+#[derive(Default, PartialEq)]
+pub enum IdeStatus {
+    #[default]
+    Pending,
+    Listening,
+    Connected,
+}
+
 pub struct IdeServer {
     listener: TcpListener,
 }
