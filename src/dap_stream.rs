@@ -77,8 +77,6 @@ impl DapStream {
 
             self.buffer
                 .extend_from_slice(&next_buffer[..next_buffer_length]);
-
-            println!("Current buffer length: {}", self.buffer.len())
         }
     }
 
@@ -172,8 +170,6 @@ fn parse_dap_message(buffer: &[u8]) -> Result<Option<(DapMessage, Vec<u8>)>> {
 ///
 /// Body is assuemd to be a valid JSON buffer, if JSON parsing failed or DapMessage could not be constructed, and error would be returned instead.
 fn parse_dap_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
-    println!("{}", String::from_utf8_lossy(body));
-
     let parsed_json: serde_json::Value =
         serde_json::from_slice(body).context("Could not parse DAP message: Invalid JSON")?;
 

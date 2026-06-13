@@ -1,7 +1,7 @@
 use crate::dap_stream::DapStream;
 
 use anyhow::{Context, Result, bail};
-use std::{env, time::Duration};
+use std::{env, process::Stdio, time::Duration};
 use tokio::{
     net::{TcpListener, TcpStream},
     process::{Child, Command},
@@ -40,9 +40,6 @@ impl DapAdapter {
     }
 
     pub async fn spawn(&mut self) -> Result<()> {
-        println!("Spawning deubgger as a child process");
-        println!("current dir: {}", env::current_dir()?.display());
-
         let port = port_selection()
             .await
             .context("Port selection for debugger has failed")?;
@@ -51,6 +48,8 @@ impl DapAdapter {
             .arg("--port")
             .arg(port.to_string())
             .kill_on_drop(true)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()
             .context("Unable to spawn debugger as a child process")?;
 
@@ -73,8 +72,6 @@ impl DapAdapter {
                     let stream = DapStream::new(stream);
 
                     self.status = AdapterStatus::Connected;
-
-                    println!("dap-watch has successfully connected to debugger adapter");
 
                     return Ok(stream);
                 }

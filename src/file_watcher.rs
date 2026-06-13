@@ -43,9 +43,9 @@ impl FileWatcher {
     }
 
     pub async fn next(&mut self) -> Result<()> {
-        // TODO: Add debounce logic
-        let event = self.receiver.recv().await;
-        println!("Watcher event: {:?}", event);
+        // TODO: Add debounce logic, extract event information for logging
+        let _ = self.receiver.recv().await;
+
         Ok(())
     }
 }

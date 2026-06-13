@@ -6,6 +6,8 @@ use crate::{
     dap_stream::{DapMessage, DapStream},
     file_watcher::{FileWatcher, WatcherConfig},
     ide_server::{self, IdeServer, IdeStatus},
+    log,
+    logger::LogSource,
 };
 
 #[derive(Default)]
@@ -47,9 +49,12 @@ impl Proxy {
     }
 
     pub async fn run() -> Result<()> {
-        let ide = IdeServer::new(2500)
+        let ide_port = 2500; // TODO: Should come from configuration
+        let ide = IdeServer::new(ide_port)
             .await
             .context("Launching IdeServer has failed")?;
+
+        log!(LogSource::Proxy, "Proxy is listening on :{}", ide_port);
 
         let watcher = FileWatcher::new(WatcherConfig {}).context("Failed to launch watcher")?;
         let mut proxy = Proxy::new(ide, watcher);
@@ -63,7 +68,7 @@ impl Proxy {
             select! {
                 // IDE Lifecycle
                 stream = proxy.ide.connect(), if proxy.ide_status == IdeStatus::Listening => {
-                    println!("IDE is connected!");
+                    log!(LogSource::Proxy, "IDE established connection");
                     proxy.ide_stream = Some(stream.context("Launching IdeServer has failed")?);
                     proxy.ide_status = IdeStatus::Connected;
                 },
@@ -98,7 +103,7 @@ impl Proxy {
 
                 // File Watching
                 _ = proxy.watcher.next() => {
-                    println!("Event was detected!");
+                    log!(LogSource::Watcher, "File changed, rebuilding...");
                 },
             }
         }
@@ -112,12 +117,16 @@ impl Proxy {
                 .await
                 .context("Failed spawning debug process")?;
 
+            log!(LogSource::Proxy, "Debug adapter spawned");
+
             self.adapter_stream = Some(
                 self.adapter
                     .connect()
                     .await
                     .context("Unable to connect to the debugger process")?,
             );
+
+            log!(LogSource::Proxy, "Proxy is connected to debug adapter");
 
             self.adapter_status = AdapterStatus::Connected;
         }
