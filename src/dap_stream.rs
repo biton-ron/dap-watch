@@ -45,7 +45,7 @@ impl DapStream {
         }
     }
 
-    pub async fn read(&mut self) -> Result<DapMessage> {
+    pub async fn read(&mut self) -> Result<Option<DapMessage>> {
         loop {
             let parsed = parse_dap_message(&self.buffer);
 
@@ -53,7 +53,7 @@ impl DapStream {
                 Ok(None) => {}
                 Ok(Some((message, leftovers))) => {
                     self.buffer = leftovers;
-                    return Ok(message);
+                    return Ok(Some(message));
                 }
                 Err(e) => {
                     return Err(e);
@@ -71,10 +71,7 @@ impl DapStream {
                 .await
                 .context("Could not read form IDE stream")?
             {
-                0 => {
-                    self.stream = None;
-                    continue;
-                }
+                0 => return Ok(None),
                 n => n,
             };
 
@@ -106,7 +103,7 @@ impl DapStream {
 
     // Helper that wraps an optional DapStream as a Future.
     // This makes it easier to use DapStram.read on select! loop while DapStream is optionally None (Future will not resolve if thats the case).
-    pub async fn read_stream(stream: &mut Option<DapStream>) -> Result<DapMessage> {
+    pub async fn read_stream(stream: &mut Option<DapStream>) -> Result<Option<DapMessage>> {
         match stream {
             Some(stream) => stream.read().await,
             None => std::future::pending().await,

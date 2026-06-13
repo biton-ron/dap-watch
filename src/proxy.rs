@@ -23,7 +23,7 @@ pub struct Proxy {
     ide_status: IdeStatus,
 
     // Adapter
-    adapter: Option<DapAdapter>,
+    adapter: DapAdapter,
     adapter_stream: Option<DapStream>,
     adapter_status: AdapterStatus,
 
@@ -39,9 +39,9 @@ impl Proxy {
             ide_stream: None,
             ide_queue: Vec::new(),
             ide_status: IdeStatus::Listening,
-            adapter: None,
+            adapter: DapAdapter::new(),
             adapter_stream: None,
-            adapter_status: AdapterStatus::Spawned,
+            adapter_status: AdapterStatus::Pending,
             watcher,
         }
     }
@@ -55,7 +55,13 @@ impl Proxy {
         let mut proxy = Proxy::new(ide, watcher);
 
         loop {
+            proxy
+                .spawn_adapter()
+                .await
+                .context("Debugger spawning has failed")?;
+
             select! {
+                // IDE Lifecycle
                 stream = proxy.ide.connect(), if proxy.ide_status == IdeStatus::Listening => {
                     println!("IDE is connected!");
                     proxy.ide_stream = Some(stream.context("Launching IdeServer has failed")?);
@@ -63,7 +69,8 @@ impl Proxy {
                 },
                 message = DapStream::read_stream(&mut proxy.ide_stream) => {
                     match message {
-                        Ok(message) => {
+                        Ok(None) => {},
+                        Ok(Some(message)) => {
                             if let Some(adapter_stream) = &mut proxy.adapter_stream {
                                 let _ = adapter_stream.write(message).await;
                             }
@@ -73,9 +80,12 @@ impl Proxy {
                         }
                     }
                 },
+
+                // Adapter Lifecycle
                 message = DapStream::read_stream(&mut proxy.adapter_stream) => {
                     match message {
-                        Ok(message) => {
+                        Ok(None) => {},
+                        Ok(Some(message)) => {
                             if let Some(stream) = &mut proxy.ide_stream {
                                 let _ = stream.write(message).await;
                             }
@@ -85,10 +95,33 @@ impl Proxy {
                         }
                     }
                 },
+
+                // File Watching
                 _ = proxy.watcher.next() => {
                     println!("Event was detected!");
                 },
             }
         }
+    }
+
+    // Spawn the debugger, connect
+    async fn spawn_adapter(&mut self) -> Result<()> {
+        if self.adapter_status == AdapterStatus::Pending {
+            self.adapter
+                .spawn()
+                .await
+                .context("Failed spawning debug process")?;
+
+            self.adapter_stream = Some(
+                self.adapter
+                    .connect()
+                    .await
+                    .context("Unable to connect to the debugger process")?,
+            );
+
+            self.adapter_status = AdapterStatus::Connected;
+        }
+
+        Ok(())
     }
 }

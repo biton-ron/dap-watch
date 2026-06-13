@@ -16,7 +16,7 @@ const TMP_CODELLB_PATH: &str =
 
 const CONNECTION_LOOP_MAX_ERRORS: u16 = 30;
 
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 pub enum AdapterStatus {
     #[default]
     Pending,
