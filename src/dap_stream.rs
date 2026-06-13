@@ -23,12 +23,21 @@ pub enum RequestCommandTypes {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum EventTypes {
+    Output(String),
+    Other,
+}
+
+#[derive(Debug, PartialEq)]
 pub enum DapMessage {
     Request {
         raw_bytes: Vec<u8>,
         command: RequestCommandTypes,
     },
-    Event(Vec<u8>),
+    Event {
+        raw_bytes: Vec<u8>,
+        event: EventTypes,
+    },
     Response(Vec<u8>),
 }
 
@@ -178,7 +187,25 @@ fn parse_dap_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
         .context("Could not parse DAP message type")?;
 
     match message_type_str {
-        "event" => Ok(DapMessage::Event(Vec::from(full_message))),
+        "event" => {
+            let event_type = parsed_json["event"]
+                .as_str()
+                .context("Parser could not find an event type")?;
+
+            Ok(DapMessage::Event {
+                raw_bytes: Vec::from(full_message),
+                event: match event_type {
+                    "output" => {
+                        let output = parsed_json["body"]["output"]
+                            .as_str()
+                            .context("Parser could not find output on event with output type")?;
+
+                        EventTypes::Output(String::from(output))
+                    }
+                    _ => EventTypes::Other,
+                },
+            })
+        }
         "response" => Ok(DapMessage::Response(Vec::from(full_message))),
         "request" => {
             let command_type_str = parsed_json["command"].as_str().context(
