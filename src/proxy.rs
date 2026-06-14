@@ -78,8 +78,8 @@ impl Proxy {
                         Ok(None) => {},
                         Ok(Some(message)) => {
                             if let Some(adapter_stream) = &mut proxy.adapter_stream {
-                                let _ = adapter_stream.write(message).await;
-                                // log!(LogSource::Ide, "{}", message);
+                                let _ = adapter_stream.write(&message).await;
+                                log!(LogSource::Ide, "{}", message);
                             }
                         },
                         Err(e) => {
@@ -94,7 +94,8 @@ impl Proxy {
                         Ok(None) => {},
                         Ok(Some(message)) => {
                             if let Some(stream) = &mut proxy.ide_stream {
-                                let _ = stream.write(message).await;
+                                let _ = stream.write(&message).await;
+                                log!(LogSource::Adapter, "{}", message);
                             }
                         },
                         Err(e) => {

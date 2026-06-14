@@ -6,6 +6,7 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/test_app",
+            "console": "internalConsole",
             "debugServer": 2500,
         }
     ]

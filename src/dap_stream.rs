@@ -56,7 +56,7 @@ impl DapStream {
         }
     }
 
-    pub async fn write(&mut self, message: DapMessage) -> Result<()> {
+    pub async fn write(&mut self, message: &DapMessage) -> Result<()> {
         let stream = self
             .stream
             .as_mut()

@@ -40,13 +40,25 @@ pub enum DapMessage {
     },
 }
 
-// impl std::fmt::Display for DapMessage {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             DapMessage::Event { .., event } => write!("")
-//         }
-//     }
-// }
+impl std::fmt::Display for DapMessage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DapMessage::Event { event, seq, .. } => {
+                write!(formatter, "[SEQ: {}] DapMessage::Event | {:?}", seq, event)
+            }
+            DapMessage::Response { seq, .. } => {
+                write!(formatter, "[SEQ: {}] DapMessage::Response", seq)
+            }
+            DapMessage::Request { command, seq, .. } => {
+                write!(
+                    formatter,
+                    "[SEQ: {}] DapMessage::Request | {:?}",
+                    seq, command
+                )
+            }
+        }
+    }
+}
 
 /// Takes a complete body and parse it as a DapMessage.
 ///
