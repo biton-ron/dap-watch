@@ -79,6 +79,7 @@ impl Proxy {
                         Ok(Some(message)) => {
                             if let Some(adapter_stream) = &mut proxy.adapter_stream {
                                 let _ = adapter_stream.write(message).await;
+                                // log!(LogSource::Ide, "{}", message);
                             }
                         },
                         Err(e) => {

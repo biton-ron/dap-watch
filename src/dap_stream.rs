@@ -6,7 +6,7 @@ use tokio::{
     net::TcpStream,
 };
 
-use crate::dap_message::{DapMessage, EventTypes, RequestCommandTypes};
+use crate::dap_message::{DapMessage, EventTypes, RequestCommandTypes, parse_dap_body};
 
 pub struct DapStream {
     stream: Option<TcpStream>,
@@ -140,79 +140,11 @@ fn parse_dap_message(buffer: &[u8]) -> Result<Option<(DapMessage, Vec<u8>)>> {
     Ok(None)
 }
 
-/// Takes a complete body and parse it as a DapMessage.
-///
-/// `body` is only the JSON part of the message (no headers, full JSON).  
-///
-/// `full_message` is full message including headers (it is kept on DapMessage for forward-passing between DapStreams).
-///
-/// Body is assuemd to be a valid JSON buffer, if JSON parsing failed or DapMessage could not be constructed, and error would be returned instead.
-fn parse_dap_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
-    let parsed_json: serde_json::Value =
-        serde_json::from_slice(body).context("Could not parse DAP message: Invalid JSON")?;
-
-    let message_type_str = parsed_json["type"]
-        .as_str()
-        .context("Could not parse DAP message type")?;
-
-    match message_type_str {
-        "event" => {
-            let event_type = parsed_json["event"]
-                .as_str()
-                .context("Parser could not find an event type")?;
-
-            Ok(DapMessage::Event {
-                raw_bytes: Vec::from(full_message),
-                event: match event_type {
-                    "output" => {
-                        let output = parsed_json["body"]["output"]
-                            .as_str()
-                            .context("Parser could not find output on event with output type")?;
-
-                        EventTypes::Output(String::from(output))
-                    }
-                    _ => EventTypes::Other,
-                },
-            })
-        }
-        "response" => Ok(DapMessage::Response(Vec::from(full_message))),
-        "request" => {
-            let command_type_str = parsed_json["command"].as_str().context(
-                "Could not parse request: a Request should have a command attached to it as a string",
-            )?;
-
-            let command: RequestCommandTypes = match command_type_str {
-                "setBreakpoints" => {
-                    let file_path = parsed_json["arguments"]["source"]["path"]
-                        .as_str()
-                        .context("DAP parsing failed: setBreakpoints is missing source path")?;
-
-                    RequestCommandTypes::SetBreakpoints(file_path.to_string())
-                }
-                "setDataBreakpoints" => RequestCommandTypes::SetDataBreakpoints,
-                "setExecutionBreakpoints" => RequestCommandTypes::SetExecutionBreakpoints,
-                "setFunctionBreakpoints" => RequestCommandTypes::SetFunctionBreakpoints,
-                "setInstructionBreakpoints" => RequestCommandTypes::SetInstructionBreakpoints,
-                "initialize" => RequestCommandTypes::Initialize,
-                "attach" => RequestCommandTypes::Attach,
-                "launch" => RequestCommandTypes::Launch,
-                _ => RequestCommandTypes::PassForward,
-            };
-
-            Ok(DapMessage::Request {
-                raw_bytes: Vec::from(full_message),
-                command,
-            })
-        }
-        _ => bail!("Invalid DAP message type"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{
         dap_message::{DapMessage, EventTypes, RequestCommandTypes},
-        dap_stream::{parse_dap_body, parse_dap_message},
+        dap_stream::parse_dap_message,
     };
 
     fn make_dap_message(body: &str) -> Vec<u8> {
@@ -378,95 +310,6 @@ mod tests {
     fn test_parse_invalid_content_length_returns_error() {
         let buffer = b"Content-Length: abc\r\n\r\n{\"seq\":1}";
         let parsed = parse_dap_message(buffer);
-
-        assert!(parsed.is_err());
-    }
-
-    // parse_dap_body tests
-    #[test]
-    fn test_parse_body_invalid_json_returns_error() {
-        let buffer = r#"not valid json at all"#.as_bytes();
-        let parsed = parse_dap_body(buffer, buffer);
-
-        assert!(parsed.is_err());
-    }
-
-    #[test]
-    fn test_parse_body_missing_type_returns_error() {
-        let buffer = r#"{"seq":1,"command":"initialize"}"#.as_bytes();
-        let parsed = parse_dap_body(buffer, buffer);
-
-        assert!(parsed.is_err());
-    }
-
-    #[test]
-    fn test_parse_body_request_missing_command_returns_error() {
-        let buffer = r#"{"seq":1,"type":"request"}"#.as_bytes();
-        let parsed = parse_dap_body(buffer, buffer);
-
-        assert!(parsed.is_err());
-    }
-
-    #[test]
-    fn test_parse_body_set_breakpoints_missing_source_path_returns_error() {
-        let buffer =
-            r#"{"seq":1,"type":"request","command":"setBreakpoints","arguments":{}}"#.as_bytes();
-        let parsed = parse_dap_body(buffer, buffer);
-
-        assert!(parsed.is_err());
-    }
-
-    #[test]
-    fn test_parse_output_event_stdout() {
-        let buffer = r#"{"seq":1,"type":"event","event":"output","body":{"category":"stdout","output":"hello world\n"}}"#.as_bytes();
-        let parsed = parse_dap_body(buffer, buffer);
-
-        match parsed {
-            Ok(message) => {
-                assert_eq!(
-                    message,
-                    DapMessage::Event {
-                        raw_bytes: Vec::from(buffer),
-                        event: EventTypes::Output(String::from("hello world\n"))
-                    }
-                )
-            }
-            Err(_) => panic!("Expected event to be parsed"),
-        }
-    }
-
-    #[test]
-    fn test_parse_non_output_event_returns_other() {
-        let buffer = r#"{"seq":1,"type":"event","event":"initialized"}"#.as_bytes();
-        let parsed = parse_dap_body(buffer, buffer);
-
-        match parsed {
-            Ok(message) => {
-                assert_eq!(
-                    message,
-                    DapMessage::Event {
-                        raw_bytes: Vec::from(buffer),
-                        event: EventTypes::Other
-                    }
-                )
-            }
-            Err(_) => panic!("Expected event to be parsed"),
-        }
-    }
-
-    #[test]
-    fn test_parse_output_event_missing_body_returns_error() {
-        let buffer = r#"{"seq":1,"type":"event","event":"output"}"#.as_bytes();
-        let parsed = parse_dap_body(buffer, buffer);
-
-        assert!(parsed.is_err());
-    }
-
-    #[test]
-    fn test_parse_output_event_missing_output_returns_error() {
-        let buffer =
-            r#"{"seq":1,"type":"event","event":"output","body":{"category":"stdout"}}"#.as_bytes();
-        let parsed = parse_dap_body(buffer, buffer);
 
         assert!(parsed.is_err());
     }
