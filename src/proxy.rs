@@ -11,6 +11,11 @@ use crate::{
     logger::LogSource,
 };
 
+enum StreamSources {
+    Ide,
+    Adapter,
+}
+
 #[derive(Default)]
 struct DebugState {
     initialize: Option<DapMessage>,
@@ -74,36 +79,10 @@ impl Proxy {
                     self.ide_stream = Some(stream.context("Launching IdeServer has failed")?);
                     self.ide_status = IdeStatus::Connected;
                 },
-                message = DapStream::read_stream(&mut self.ide_stream) => {
-                    match message {
-                        Ok(None) => {},
-                        Ok(Some(message)) => {
-                            if let Some(adapter_stream) = &mut self.adapter_stream {
-                                let _ = adapter_stream.write(&message).await;
-                                log!(LogSource::Ide, "{}", message);
-                            }
-                        },
-                        Err(e) => {
-                            bail!(e);
-                        }
-                    }
-                },
+                message = DapStream::read_stream(&mut self.ide_stream) => self.handle_streaming(StreamSources::Ide, message).await?,
 
                 // Adapter Lifecycle
-                message = DapStream::read_stream(&mut self.adapter_stream) => {
-                    match message {
-                        Ok(None) => {},
-                        Ok(Some(message)) => {
-                            if let Some(stream) = &mut self.ide_stream {
-                                let _ = stream.write(&message).await;
-                                log!(LogSource::Adapter, "{}", message);
-                            }
-                        },
-                        Err(e) => {
-                            bail!(e);
-                        }
-                    }
-                },
+                message = DapStream::read_stream(&mut self.adapter_stream) => self.handle_streaming(StreamSources::Adapter, message).await?,
 
                 // File Watching
                 _ = self.watcher.next() => {
@@ -111,6 +90,35 @@ impl Proxy {
                 },
             }
         }
+    }
+
+    // Intercept messages from both streaming sources and deal with forwarding and state management
+    async fn handle_streaming(
+        &mut self,
+        source: StreamSources,
+        message: Result<Option<DapMessage>>,
+    ) -> Result<()> {
+        match message {
+            Ok(None) => {}
+            Ok(Some(message)) => {
+                let (forward_stream, log_source) = match source {
+                    StreamSources::Adapter => (&mut self.ide_stream, LogSource::Adapter),
+                    StreamSources::Ide => (&mut self.adapter_stream, LogSource::Ide),
+                };
+
+                if let Some(forward_stream) = forward_stream {
+                    forward_stream
+                        .write(&message)
+                        .await
+                        .context("Could not write a message to a stream")?;
+
+                    log!(log_source, "{}", message);
+                }
+            }
+            Err(e) => bail!(e),
+        }
+
+        Ok(())
     }
 
     // Spawn the debugger, connect
