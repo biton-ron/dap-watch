@@ -187,7 +187,7 @@ mod tests {
                     DapMessage::Event {
                         seq: 1,
                         raw_bytes: buffer,
-                        event: EventTypes::Other
+                        event: EventTypes::Other(String::from("initialized"))
                     }
                 );
             }
@@ -318,7 +318,10 @@ mod tests {
                         raw_bytes,
                     } => {
                         assert_eq!(seq, 1);
-                        assert_eq!(command, RequestCommandTypes::PassForward);
+                        assert_eq!(
+                            command,
+                            RequestCommandTypes::PassForward(String::from("continue"))
+                        );
                         assert_eq!(raw_bytes, buffer);
                     }
                     _ => panic!("Message type is expected to be a Request"),

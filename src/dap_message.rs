@@ -13,13 +13,13 @@ pub enum RequestCommandTypes {
     SetExecutionBreakpoints,
     SetFunctionBreakpoints,
     SetInstructionBreakpoints,
-    PassForward, // Fallback for all the rest
+    PassForward(String), // Fallback for all the rest
 }
 
 #[derive(Debug, PartialEq)]
 pub enum EventTypes {
     Output(String),
-    Other,
+    Other(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -96,7 +96,7 @@ pub fn parse_dap_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
 
                         EventTypes::Output(String::from(output))
                     }
-                    _ => EventTypes::Other,
+                    _ => EventTypes::Other(String::from(event_type)),
                 },
             })
         }
@@ -124,7 +124,7 @@ pub fn parse_dap_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
                 "initialize" => RequestCommandTypes::Initialize,
                 "attach" => RequestCommandTypes::Attach,
                 "launch" => RequestCommandTypes::Launch,
-                _ => RequestCommandTypes::PassForward,
+                _ => RequestCommandTypes::PassForward(String::from(command_type_str)),
             };
 
             Ok(DapMessage::Request {
@@ -207,7 +207,7 @@ mod tests {
                     DapMessage::Event {
                         seq: 500,
                         raw_bytes: Vec::from(buffer),
-                        event: EventTypes::Other
+                        event: EventTypes::Other(String::from("initialized")),
                     }
                 )
             }
