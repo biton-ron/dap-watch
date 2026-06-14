@@ -25,20 +25,25 @@ pub enum EventTypes {
 #[derive(Debug, PartialEq)]
 pub enum DapMessage {
     Request {
+        seq: u64,
         raw_bytes: Vec<u8>,
         command: RequestCommandTypes,
     },
     Event {
+        seq: u64,
         raw_bytes: Vec<u8>,
         event: EventTypes,
     },
-    Response(Vec<u8>),
+    Response {
+        seq: u64,
+        raw_bytes: Vec<u8>,
+    },
 }
 
 // impl std::fmt::Display for DapMessage {
 //     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 //         match self {
-//             DapMessage::Event { .., event }
+//             DapMessage::Event { .., event } => write!("")
 //         }
 //     }
 // }
@@ -58,6 +63,10 @@ pub fn parse_dap_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
         .as_str()
         .context("Could not parse DAP message type")?;
 
+    let seq = parsed_json["seq"]
+        .as_u64()
+        .context("Unabled to extract seq id from message body")?;
+
     match message_type_str {
         "event" => {
             let event_type = parsed_json["event"]
@@ -65,6 +74,7 @@ pub fn parse_dap_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
                 .context("Parser could not find an event type")?;
 
             Ok(DapMessage::Event {
+                seq,
                 raw_bytes: Vec::from(full_message),
                 event: match event_type {
                     "output" => {
@@ -78,7 +88,10 @@ pub fn parse_dap_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
                 },
             })
         }
-        "response" => Ok(DapMessage::Response(Vec::from(full_message))),
+        "response" => Ok(DapMessage::Response {
+            seq,
+            raw_bytes: Vec::from(full_message),
+        }),
         "request" => {
             let command_type_str = parsed_json["command"].as_str().context(
                 "Could not parse request: a Request should have a command attached to it as a string",
@@ -103,6 +116,7 @@ pub fn parse_dap_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
             };
 
             Ok(DapMessage::Request {
+                seq,
                 raw_bytes: Vec::from(full_message),
                 command,
             })
@@ -159,6 +173,7 @@ mod tests {
                 assert_eq!(
                     message,
                     DapMessage::Event {
+                        seq: 1,
                         raw_bytes: Vec::from(buffer),
                         event: EventTypes::Output(String::from("hello world\n"))
                     }
@@ -170,7 +185,7 @@ mod tests {
 
     #[test]
     fn test_parse_non_output_event_returns_other() {
-        let buffer = r#"{"seq":1,"type":"event","event":"initialized"}"#.as_bytes();
+        let buffer = r#"{"seq":500,"type":"event","event":"initialized"}"#.as_bytes();
         let parsed = parse_dap_body(buffer, buffer);
 
         match parsed {
@@ -178,6 +193,7 @@ mod tests {
                 assert_eq!(
                     message,
                     DapMessage::Event {
+                        seq: 500,
                         raw_bytes: Vec::from(buffer),
                         event: EventTypes::Other
                     }

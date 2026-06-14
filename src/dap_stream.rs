@@ -63,14 +63,10 @@ impl DapStream {
             .context("Stream must have a value for write to work")?;
 
         match message {
-            DapMessage::Event {
-                raw_bytes: buffer, ..
-            }
-            | DapMessage::Response(buffer)
-            | DapMessage::Request {
-                raw_bytes: buffer, ..
-            } => {
-                stream.write(&buffer).await?;
+            DapMessage::Event { raw_bytes, .. }
+            | DapMessage::Response { raw_bytes, .. }
+            | DapMessage::Request { raw_bytes, .. } => {
+                stream.write(&raw_bytes).await?;
             }
         }
 
@@ -154,7 +150,7 @@ mod tests {
     // parse_dap_message tests
     #[test]
     fn test_parse_complete_request() {
-        let buffer = make_dap_message(r#"{"seq":1,"type":"request","command":"initialize"}"#);
+        let buffer = make_dap_message(r#"{"seq":152,"type":"request","command":"initialize"}"#);
         let parsed = parse_dap_message(&buffer).unwrap();
 
         match parsed {
@@ -162,7 +158,12 @@ mod tests {
                 assert_eq!(leftovers.len(), 0); // Complete message, should not have leftovers
 
                 match message {
-                    DapMessage::Request { command, raw_bytes } => {
+                    DapMessage::Request {
+                        seq,
+                        command,
+                        raw_bytes,
+                    } => {
+                        assert_eq!(seq, 152);
                         assert_eq!(command, RequestCommandTypes::Initialize);
                         assert_eq!(raw_bytes, buffer);
                     }
@@ -184,6 +185,7 @@ mod tests {
                 assert_eq!(
                     message,
                     DapMessage::Event {
+                        seq: 1,
                         raw_bytes: buffer,
                         event: EventTypes::Other
                     }
@@ -202,7 +204,13 @@ mod tests {
         match parsed {
             Some((message, leftovers)) => {
                 assert_eq!(leftovers.len(), 0); // Complete message, should not have leftovers
-                assert_eq!(message, DapMessage::Response(buffer));
+                assert_eq!(
+                    message,
+                    DapMessage::Response {
+                        seq: 1,
+                        raw_bytes: buffer
+                    }
+                );
             }
             None => panic!("Expected parsing to result in DapMessage"),
         }
@@ -235,7 +243,7 @@ mod tests {
     #[test]
     fn test_parse_message_with_leftovers() {
         let initial_message =
-            make_dap_message(r#"{"seq":1,"type":"request","command":"initialize"}"#);
+            make_dap_message(r#"{"seq":500,"type":"request","command":"initialize"}"#);
         let follow_up_message = make_dap_message(r#"{"seq":2,"type":"event","event":"stopped"}"#);
 
         // Buffer contains two messages at once, leftovers should include the follow up message
@@ -247,7 +255,11 @@ mod tests {
                 assert_eq!(leftovers, follow_up_message);
 
                 match message {
-                    DapMessage::Request { command, raw_bytes } => {
+                    DapMessage::Request {
+                        seq: 500,
+                        command,
+                        raw_bytes,
+                    } => {
                         assert_eq!(command, RequestCommandTypes::Initialize);
                         assert_eq!(raw_bytes, initial_message);
                     }
@@ -271,11 +283,16 @@ mod tests {
                 assert_eq!(leftovers.len(), 0); // Complete message, should not have leftovers
 
                 match message {
-                    DapMessage::Request { command, raw_bytes } => {
+                    DapMessage::Request {
+                        seq,
+                        command,
+                        raw_bytes,
+                    } => {
                         assert_eq!(
                             command,
                             RequestCommandTypes::SetBreakpoints(String::from("/test/path.rs"))
                         );
+                        assert_eq!(seq, 1);
                         assert_eq!(raw_bytes, buffer);
                     }
                     _ => panic!("Message type is expected to be a Request"),
@@ -295,7 +312,12 @@ mod tests {
                 assert_eq!(leftovers.len(), 0); // Complete message, should not have leftovers
 
                 match message {
-                    DapMessage::Request { command, raw_bytes } => {
+                    DapMessage::Request {
+                        seq,
+                        command,
+                        raw_bytes,
+                    } => {
+                        assert_eq!(seq, 1);
                         assert_eq!(command, RequestCommandTypes::PassForward);
                         assert_eq!(raw_bytes, buffer);
                     }
