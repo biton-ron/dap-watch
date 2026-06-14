@@ -11,7 +11,8 @@ mod proxy;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    Proxy::run().await?;
+    let mut proxy = Proxy::new().await?;
+    proxy.run().await?;
 
     Ok(())
 }

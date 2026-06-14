@@ -6,7 +6,7 @@ use crate::{
     dap_message::DapMessage,
     dap_stream::DapStream,
     file_watcher::{FileWatcher, WatcherConfig},
-    ide_server::{self, IdeServer, IdeStatus},
+    ide_server::{IdeServer, IdeStatus},
     log,
     logger::LogSource,
 };
@@ -35,8 +35,20 @@ pub struct Proxy {
 }
 
 impl Proxy {
-    pub fn new(ide: IdeServer, watcher: FileWatcher) -> Proxy {
-        Proxy {
+    pub async fn new() -> Result<Proxy> {
+        let watcher = FileWatcher::new(WatcherConfig {}).context("Failed to launch watcher")?;
+        let ide_port = 2500; // TODO: Should come from configuration
+        let ide = IdeServer::new(ide_port)
+            .await
+            .context("Launching IdeServer has failed")?;
+
+        log!(
+            LogSource::Proxy,
+            "Initiated, proxy is listening on :{}",
+            ide_port
+        );
+
+        Ok(Proxy {
             state: DebugState::default(),
             ide,
             ide_stream: None,
@@ -46,38 +58,27 @@ impl Proxy {
             adapter_stream: None,
             adapter_status: AdapterStatus::Pending,
             watcher,
-        }
+        })
     }
 
-    pub async fn run() -> Result<()> {
-        let ide_port = 2500; // TODO: Should come from configuration
-        let ide = IdeServer::new(ide_port)
-            .await
-            .context("Launching IdeServer has failed")?;
-
-        log!(LogSource::Proxy, "Proxy is listening on :{}", ide_port);
-
-        let watcher = FileWatcher::new(WatcherConfig {}).context("Failed to launch watcher")?;
-        let mut proxy = Proxy::new(ide, watcher);
-
+    pub async fn run(&mut self) -> Result<()> {
         loop {
-            proxy
-                .spawn_adapter()
+            self.spawn_adapter()
                 .await
                 .context("Debugger spawning has failed")?;
 
             select! {
                 // IDE Lifecycle
-                stream = proxy.ide.connect(), if proxy.ide_status == IdeStatus::Listening => {
+                stream = self.ide.connect(), if self.ide_status == IdeStatus::Listening => {
                     log!(LogSource::Proxy, "IDE established connection");
-                    proxy.ide_stream = Some(stream.context("Launching IdeServer has failed")?);
-                    proxy.ide_status = IdeStatus::Connected;
+                    self.ide_stream = Some(stream.context("Launching IdeServer has failed")?);
+                    self.ide_status = IdeStatus::Connected;
                 },
-                message = DapStream::read_stream(&mut proxy.ide_stream) => {
+                message = DapStream::read_stream(&mut self.ide_stream) => {
                     match message {
                         Ok(None) => {},
                         Ok(Some(message)) => {
-                            if let Some(adapter_stream) = &mut proxy.adapter_stream {
+                            if let Some(adapter_stream) = &mut self.adapter_stream {
                                 let _ = adapter_stream.write(&message).await;
                                 log!(LogSource::Ide, "{}", message);
                             }
@@ -89,11 +90,11 @@ impl Proxy {
                 },
 
                 // Adapter Lifecycle
-                message = DapStream::read_stream(&mut proxy.adapter_stream) => {
+                message = DapStream::read_stream(&mut self.adapter_stream) => {
                     match message {
                         Ok(None) => {},
                         Ok(Some(message)) => {
-                            if let Some(stream) = &mut proxy.ide_stream {
+                            if let Some(stream) = &mut self.ide_stream {
                                 let _ = stream.write(&message).await;
                                 log!(LogSource::Adapter, "{}", message);
                             }
@@ -105,7 +106,7 @@ impl Proxy {
                 },
 
                 // File Watching
-                _ = proxy.watcher.next() => {
+                _ = self.watcher.next() => {
                     log!(LogSource::Watcher, "File changed, rebuilding...");
                 },
             }

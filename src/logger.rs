@@ -1,5 +1,5 @@
 use colored::Colorize;
-use std::fmt::{Arguments, Display};
+use std::fmt::Arguments;
 
 pub enum LogSource {
     Proxy,

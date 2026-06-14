@@ -6,7 +6,7 @@ use tokio::{
     net::TcpStream,
 };
 
-use crate::dap_message::{DapMessage, EventTypes, RequestCommandTypes, parse_dap_body};
+use crate::dap_message::{DapMessage, parse_dap_body};
 
 pub struct DapStream {
     stream: Option<TcpStream>,
