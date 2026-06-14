@@ -96,7 +96,9 @@ impl DapStream {
             .context("Stream must have a value for write to work")?;
 
         match message {
-            DapMessage::Event(buffer)
+            DapMessage::Event {
+                raw_bytes: buffer, ..
+            }
             | DapMessage::Response(buffer)
             | DapMessage::Request {
                 raw_bytes: buffer, ..
@@ -241,7 +243,9 @@ fn parse_dap_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
 
 #[cfg(test)]
 mod tests {
-    use crate::dap_stream::{DapMessage, RequestCommandTypes, parse_dap_body, parse_dap_message};
+    use crate::dap_stream::{
+        DapMessage, EventTypes, RequestCommandTypes, parse_dap_body, parse_dap_message,
+    };
 
     fn make_dap_message(body: &str) -> Vec<u8> {
         format!("Content-Length: {}\r\n\r\n{}", body.len(), body).into_bytes()
@@ -277,7 +281,13 @@ mod tests {
         match parsed {
             Some((message, leftovers)) => {
                 assert_eq!(leftovers.len(), 0); // Complete message, should not have leftovers
-                assert_eq!(message, DapMessage::Event(buffer));
+                assert_eq!(
+                    message,
+                    DapMessage::Event {
+                        raw_bytes: buffer,
+                        event: EventTypes::Other
+                    }
+                );
             }
             None => panic!("Expected parsing to result in DapMessage"),
         }
@@ -433,6 +443,61 @@ mod tests {
     fn test_parse_body_set_breakpoints_missing_source_path_returns_error() {
         let buffer =
             r#"{"seq":1,"type":"request","command":"setBreakpoints","arguments":{}}"#.as_bytes();
+        let parsed = parse_dap_body(buffer, buffer);
+
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn test_parse_output_event_stdout() {
+        let buffer = r#"{"seq":1,"type":"event","event":"output","body":{"category":"stdout","output":"hello world\n"}}"#.as_bytes();
+        let parsed = parse_dap_body(buffer, buffer);
+
+        match parsed {
+            Ok(message) => {
+                assert_eq!(
+                    message,
+                    DapMessage::Event {
+                        raw_bytes: Vec::from(buffer),
+                        event: EventTypes::Output(String::from("hello world\n"))
+                    }
+                )
+            }
+            Err(_) => panic!("Expected event to be parsed"),
+        }
+    }
+
+    #[test]
+    fn test_parse_non_output_event_returns_other() {
+        let buffer = r#"{"seq":1,"type":"event","event":"initialized"}"#.as_bytes();
+        let parsed = parse_dap_body(buffer, buffer);
+
+        match parsed {
+            Ok(message) => {
+                assert_eq!(
+                    message,
+                    DapMessage::Event {
+                        raw_bytes: Vec::from(buffer),
+                        event: EventTypes::Other
+                    }
+                )
+            }
+            Err(_) => panic!("Expected event to be parsed"),
+        }
+    }
+
+    #[test]
+    fn test_parse_output_event_missing_body_returns_error() {
+        let buffer = r#"{"seq":1,"type":"event","event":"output"}"#.as_bytes();
+        let parsed = parse_dap_body(buffer, buffer);
+
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn test_parse_output_event_missing_output_returns_error() {
+        let buffer =
+            r#"{"seq":1,"type":"event","event":"output","body":{"category":"stdout"}}"#.as_bytes();
         let parsed = parse_dap_body(buffer, buffer);
 
         assert!(parsed.is_err());
