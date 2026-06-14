@@ -1,17 +1,12 @@
 use colored::Colorize;
 use std::fmt::{Arguments, Display};
 
-pub enum Direction {
-    In,
-    Out,
-}
-
 pub enum LogSource {
     Proxy,
     Watcher,
     Program,
-    Adapter(Direction),
-    Ide(Direction),
+    Adapter,
+    Ide,
 }
 
 impl LogSource {
@@ -23,10 +18,8 @@ impl LogSource {
             LogSource::Proxy => "[Proxy]".yellow(),
             LogSource::Watcher => "[Watcher]".green(),
             LogSource::Program => "[Program]".cyan(),
-            LogSource::Adapter(Direction::In) => "[Adapter -> Proxy]".blue(),
-            LogSource::Adapter(Direction::Out) => "[Proxy -> Adapter]".bright_blue(),
-            LogSource::Ide(Direction::In) => "[IDE -> Proxy]".magenta(),
-            LogSource::Ide(Direction::Out) => "[Proxy -> IDE]".bright_magenta(),
+            LogSource::Adapter => "[Adapter -> IDE]".bright_blue(),
+            LogSource::Ide => "[IDE -> Adapter]".bright_magenta(),
         };
 
         println!("{}: {}", tag, message);

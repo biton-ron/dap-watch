@@ -2,6 +2,7 @@ use anyhow::Result;
 use proxy::Proxy;
 
 mod dap_adapter;
+mod dap_message;
 mod dap_stream;
 mod file_watcher;
 mod ide_server;

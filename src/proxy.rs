@@ -3,7 +3,8 @@ use tokio::select;
 
 use crate::{
     dap_adapter::{AdapterStatus, DapAdapter},
-    dap_stream::{DapMessage, DapStream},
+    dap_message::DapMessage,
+    dap_stream::DapStream,
     file_watcher::{FileWatcher, WatcherConfig},
     ide_server::{self, IdeServer, IdeStatus},
     log,
