@@ -1,9 +1,14 @@
+use std::collections::HashMap;
+
 use anyhow::{Context, Result, bail};
 use tokio::select;
 
 use crate::{
     dap_adapter::{AdapterStatus, DapAdapter},
-    dap_message::DapMessage,
+    dap_message::{
+        DapMessage::{self, Request},
+        RequestCommandTypes::{self},
+    },
     dap_stream::DapStream,
     file_watcher::{FileWatcher, WatcherConfig},
     ide_server::{IdeServer, IdeStatus},
@@ -11,6 +16,7 @@ use crate::{
     logger::LogSource,
 };
 
+#[derive(PartialEq)]
 enum StreamSources {
     Ide,
     Adapter,
@@ -18,7 +24,13 @@ enum StreamSources {
 
 #[derive(Default)]
 struct DebugState {
-    initialize: Option<DapMessage>,
+    initialize: Option<Vec<u8>>,
+    launch: Option<Vec<u8>>,
+    attach: Option<Vec<u8>>,
+    configuration_done: Option<Vec<u8>>,
+    function_breakpoints: Option<Vec<u8>>,
+    exception_breakpoints: Option<Vec<u8>>,
+    breakpoints: HashMap<String, Vec<u8>>, // Hashed by file path
 }
 
 pub struct Proxy {
@@ -101,6 +113,10 @@ impl Proxy {
         match message {
             Ok(None) => {}
             Ok(Some(message)) => {
+                if source == StreamSources::Ide {
+                    self.capture_state(&message);
+                }
+
                 let (forward_stream, log_source) = match source {
                     StreamSources::Adapter => (&mut self.ide_stream, LogSource::Adapter),
                     StreamSources::Ide => (&mut self.adapter_stream, LogSource::Ide),
@@ -119,6 +135,43 @@ impl Proxy {
         }
 
         Ok(())
+    }
+
+    /// Takes a message and updates Proxy state accordingly.
+    /// State is only affected by messages that are sent from the IDE, so there is no need to call capture_state when message source is debug adapter.
+    fn capture_state(&mut self, message: &DapMessage) {
+        // Only requests have some effect on the state
+        if let Request {
+            raw_bytes, command, ..
+        } = message
+        {
+            let raw_bytes = raw_bytes.clone();
+
+            match command {
+                RequestCommandTypes::Attach => self.state.attach = Some(raw_bytes),
+                RequestCommandTypes::Initialize => self.state.initialize = Some(raw_bytes),
+                RequestCommandTypes::Launch => self.state.launch = Some(raw_bytes),
+                RequestCommandTypes::ConfigurationDone => {
+                    self.state.configuration_done = Some(raw_bytes)
+                }
+                RequestCommandTypes::SetExceptionBreakpoints => {
+                    self.state.exception_breakpoints = Some(raw_bytes)
+                }
+                RequestCommandTypes::SetFunctionBreakpoints => {
+                    self.state.function_breakpoints = Some(raw_bytes)
+                }
+                RequestCommandTypes::SetBreakpoints(file_path) => {
+                    self.state
+                        .breakpoints
+                        .insert(String::from(file_path), raw_bytes);
+                }
+                RequestCommandTypes::PassForward(_) => {}
+            }
+
+            if !matches!(command, RequestCommandTypes::PassForward(_)) {
+                log!(LogSource::Proxy, "State captured: {:?}", command);
+            }
+        }
     }
 
     // Spawn the debugger, connect

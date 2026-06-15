@@ -8,11 +8,10 @@ pub enum RequestCommandTypes {
     Initialize,
     Attach,
     Launch,
+    ConfigurationDone,
     SetBreakpoints(String), // String is the file_path
-    SetDataBreakpoints,
-    SetExecutionBreakpoints,
+    SetExceptionBreakpoints,
     SetFunctionBreakpoints,
-    SetInstructionBreakpoints,
     PassForward(String), // Fallback for all the rest
 }
 
@@ -117,13 +116,12 @@ pub fn parse_dap_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
 
                     RequestCommandTypes::SetBreakpoints(file_path.to_string())
                 }
-                "setDataBreakpoints" => RequestCommandTypes::SetDataBreakpoints,
-                "setExecutionBreakpoints" => RequestCommandTypes::SetExecutionBreakpoints,
+                "setExceptionBreakpoints" => RequestCommandTypes::SetExceptionBreakpoints,
                 "setFunctionBreakpoints" => RequestCommandTypes::SetFunctionBreakpoints,
-                "setInstructionBreakpoints" => RequestCommandTypes::SetInstructionBreakpoints,
                 "initialize" => RequestCommandTypes::Initialize,
                 "attach" => RequestCommandTypes::Attach,
                 "launch" => RequestCommandTypes::Launch,
+                "configurationDone" => RequestCommandTypes::ConfigurationDone,
                 _ => RequestCommandTypes::PassForward(String::from(command_type_str)),
             };
 
