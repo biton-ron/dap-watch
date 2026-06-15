@@ -8,6 +8,7 @@ mod file_watcher;
 mod ide_server;
 mod logger;
 mod proxy;
+mod proxy_state;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {

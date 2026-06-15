@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use anyhow::{Context, Result, bail};
 use tokio::select;
 
@@ -8,15 +6,13 @@ use crate::{
         AdapterStatus::{self, Replaying},
         DapAdapter,
     },
-    dap_message::{
-        DapMessage::{self, Request},
-        RequestCommandTypes::{self, ConfigurationDone},
-    },
+    dap_message::DapMessage::{self},
     dap_stream::DapStream,
     file_watcher::{FileWatcher, WatcherConfig},
     ide_server::{IdeServer, IdeStatus},
     log,
     logger::LogSource,
+    proxy_state::ProxyState,
 };
 
 #[derive(PartialEq)]
@@ -25,20 +21,8 @@ enum StreamSources {
     Adapter,
 }
 
-#[derive(Default)]
-struct DebugState {
-    initialize: Option<DapMessage>,
-    launch: Option<DapMessage>,
-    attach: Option<DapMessage>,
-    configuration_done: Option<DapMessage>,
-    function_breakpoints: Option<DapMessage>,
-    exception_breakpoints: Option<DapMessage>,
-    breakpoints: HashMap<String, DapMessage>, // Hashed by file path
-}
-
 pub struct Proxy {
-    state: DebugState,
-    state_last_replay_seq: Option<u64>,
+    state: ProxyState,
 
     // IDE
     ide: IdeServer,
@@ -69,8 +53,7 @@ impl Proxy {
         );
 
         Ok(Proxy {
-            state: DebugState::default(),
-            state_last_replay_seq: None,
+            state: ProxyState::default(),
             ide,
             ide_stream: None,
             ide_status: IdeStatus::Listening,
@@ -123,7 +106,9 @@ impl Proxy {
             Ok(None) => {}
             Ok(Some(message)) => {
                 if source == StreamSources::Ide {
-                    self.capture_state(&message);
+                    if let Some(command) = self.state.capture_state(&message) {
+                        log!(LogSource::Proxy, "State captured: {:?}", command);
+                    }
                 } else if source == StreamSources::Adapter && self.adapter_status == Replaying {
                     log!(
                         LogSource::Adapter,
@@ -131,7 +116,7 @@ impl Proxy {
                         message
                     );
 
-                    if self.is_last_replay_response(&message) {
+                    if self.state.is_last_replay_response(&message) {
                         self.adapter_status = AdapterStatus::Connected;
                         log!(LogSource::Proxy, "Message replay has finished successfuly");
                     }
@@ -157,40 +142,6 @@ impl Proxy {
         }
 
         Ok(())
-    }
-
-    /// Takes a message and updates Proxy state accordingly.
-    /// State is only affected by messages that are sent from the IDE, so there is no need to call capture_state when message source is debug adapter.
-    fn capture_state(&mut self, message: &DapMessage) {
-        // Only requests have some effect on the state
-        if let Request { command, .. } = message {
-            let message = message.clone();
-
-            match command {
-                RequestCommandTypes::Attach => self.state.attach = Some(message),
-                RequestCommandTypes::Initialize => self.state.initialize = Some(message),
-                RequestCommandTypes::Launch => self.state.launch = Some(message),
-                RequestCommandTypes::ConfigurationDone => {
-                    self.state.configuration_done = Some(message)
-                }
-                RequestCommandTypes::SetExceptionBreakpoints => {
-                    self.state.exception_breakpoints = Some(message)
-                }
-                RequestCommandTypes::SetFunctionBreakpoints => {
-                    self.state.function_breakpoints = Some(message)
-                }
-                RequestCommandTypes::SetBreakpoints(file_path) => {
-                    self.state
-                        .breakpoints
-                        .insert(String::from(file_path), message);
-                }
-                RequestCommandTypes::PassForward(_) => {}
-            }
-
-            if !matches!(command, RequestCommandTypes::PassForward(_)) {
-                log!(LogSource::Proxy, "State captured: {:?}", command);
-            }
-        }
     }
 
     // Spawn the debugger, connect
@@ -226,22 +177,7 @@ impl Proxy {
 
             self.adapter_status = AdapterStatus::Replaying;
 
-            let mut replay_sequence = vec![
-                self.state.initialize.as_ref(),
-                self.state.launch.as_ref(),
-                self.state.attach.as_ref(),
-                self.state.exception_breakpoints.as_ref(),
-                self.state.function_breakpoints.as_ref(),
-            ];
-
-            for (.., message) in &self.state.breakpoints {
-                replay_sequence.push(Some(message));
-            }
-
-            replay_sequence.push(self.state.configuration_done.as_ref());
-
-            // We're stripping None values from the replay_sequence, leaving only populated state messages
-            let replay_sequence: Vec<&DapMessage> = replay_sequence.into_iter().flatten().collect();
+            let replay_sequence = self.state.get_replay_sequence();
 
             if replay_sequence.len() > 0 {
                 for message in replay_sequence {
@@ -249,30 +185,13 @@ impl Proxy {
                         .write(message)
                         .await
                         .context("Replaying a message has failed")?;
-
-                    // Storing the seq id of the last message in the sequence, this way we can easily identify when responses
-                    // for replay messages are all completed since these replay responses should not be forwarded to the IDE.
-                    // Once the last response arrive, the adapater status is changed to AdapterStatus::Connected and bi-directional flow is resumed.
-                    self.state_last_replay_seq = Some(message.seq());
                 }
             } else {
-                self.state_last_replay_seq = None;
                 self.adapter_status = AdapterStatus::Connected;
                 log!(LogSource::Proxy, "Message replay has finished successfuly");
             }
         }
 
         Ok(())
-    }
-
-    fn is_last_replay_response(&self, message: &DapMessage) -> bool {
-        if let DapMessage::Response { request_seq, .. } = message {
-            return self
-                .state_last_replay_seq
-                .as_ref()
-                .is_none_or(|last_replay_seq| request_seq == last_replay_seq);
-        }
-
-        false
     }
 }
