@@ -72,10 +72,10 @@ impl ProxyState {
         // Stripping None values from the replay_sequence, leaving only populated state messages
         let replay_sequence: Vec<&DapMessage> = replay_sequence.into_iter().flatten().collect();
 
-        // Storing the last sequence id, this is used to identify the moment all replay responses have completed
+        // Storing the last sequence id, this is used to identify the moment all replay responses have arrived back from the adapter
         self.last_replayed_seq = replay_sequence.last().map(|m| m.seq());
 
-        return replay_sequence;
+        replay_sequence
     }
 
     /// Checks if the message is a DapMessage::Response that matches the seq id from the last message in the replay sequence
@@ -89,4 +89,160 @@ impl ProxyState {
 
         false
     }
+}
+
+#[cfg(test)]
+mod test {
+    use std::vec;
+
+    use crate::{
+        dap_message::{
+            DapMessage, EventTypes,
+            RequestCommandTypes::{self, PassForward},
+        },
+        proxy_state::ProxyState,
+    };
+
+    fn make_request(seq: u64, command: RequestCommandTypes) -> DapMessage {
+        DapMessage::Request {
+            seq,
+            raw_bytes: vec![],
+            command,
+        }
+    }
+
+    // capture_state tests
+    #[test]
+    fn test_capture_stores_each_command_in_correct_field() {
+        let mut state = ProxyState::default();
+
+        let initialize = make_request(1, RequestCommandTypes::Initialize);
+        let attach = make_request(2, RequestCommandTypes::Attach);
+        let launch = make_request(3, RequestCommandTypes::Launch);
+        let configuration_done = make_request(5, RequestCommandTypes::ConfigurationDone);
+        let exception_breakpoints = make_request(6, RequestCommandTypes::SetExceptionBreakpoints);
+        let function_breakpoints = make_request(7, RequestCommandTypes::SetFunctionBreakpoints);
+        let breakpoints = make_request(
+            8,
+            RequestCommandTypes::SetBreakpoints(String::from("testfile.rs")),
+        );
+
+        state.capture_state(&initialize);
+        state.capture_state(&attach);
+        state.capture_state(&launch);
+        state.capture_state(&configuration_done);
+        state.capture_state(&exception_breakpoints);
+        state.capture_state(&function_breakpoints);
+        state.capture_state(&breakpoints);
+
+        assert_eq!(state.initialize, Some(initialize));
+        assert_eq!(state.attach, Some(attach));
+        assert_eq!(state.launch, Some(launch));
+        assert_eq!(state.configuration_done, Some(configuration_done));
+        assert_eq!(state.exception_breakpoints, Some(exception_breakpoints));
+        assert_eq!(state.function_breakpoints, Some(function_breakpoints));
+
+        assert!(
+            state
+                .breakpoints
+                .get("testfile.rs")
+                .is_some_and(|message| message == &breakpoints)
+        );
+    }
+
+    #[test]
+    fn test_capture_set_breakpoints_different_files_coexist() {
+        let mut state = ProxyState::default();
+
+        let file_a_breakpoints = make_request(
+            1,
+            RequestCommandTypes::SetBreakpoints(String::from("file_a.rs")),
+        );
+
+        let file_b_breakpoints = make_request(
+            2,
+            RequestCommandTypes::SetBreakpoints(String::from("file_b.rs")),
+        );
+
+        state.capture_state(&file_a_breakpoints);
+        state.capture_state(&file_b_breakpoints);
+
+        assert!(
+            state
+                .breakpoints
+                .get("file_a.rs")
+                .is_some_and(|message| message == &file_a_breakpoints)
+        );
+
+        assert!(
+            state
+                .breakpoints
+                .get("file_b.rs")
+                .is_some_and(|message| message == &file_b_breakpoints)
+        );
+    }
+
+    #[test]
+    fn test_capture_pass_forward_returns_none() {
+        let mut state = ProxyState::default();
+        let message = make_request(1, PassForward(String::from("Evaluate")));
+
+        assert_eq!(state.capture_state(&message), None);
+    }
+
+    #[test]
+    fn test_capture_response_returns_none() {
+        let mut state = ProxyState::default();
+        let message = DapMessage::Response {
+            seq: 1,
+            request_seq: 2,
+            raw_bytes: vec![],
+        };
+
+        assert_eq!(state.capture_state(&message), None);
+    }
+
+    #[test]
+    fn test_capture_event_returns_none() {
+        let mut state = ProxyState::default();
+        let message = DapMessage::Event {
+            seq: 1,
+            raw_bytes: vec![],
+            event: EventTypes::Output(String::from("Test Output")),
+        };
+
+        assert_eq!(state.capture_state(&message), None);
+    }
+
+    // get_replay_sequence tests
+    #[test]
+    fn test_replay_sequence_order_initialize_first_config_done_last() {}
+
+    #[test]
+    fn test_replay_sequence_empty_state_returns_empty() {}
+
+    #[test]
+    fn test_replay_sequence_skips_none_fields() {}
+
+    #[test]
+    fn test_replay_sequence_includes_breakpoints() {}
+
+    #[test]
+    fn test_replay_sequence_sets_last_replayed_seq() {}
+
+    // is_last_replay_response tests
+    #[test]
+    fn test_is_last_replay_response_matching_seq_returns_true() {}
+
+    #[test]
+    fn test_is_last_replay_response_non_matching_seq_returns_false() {}
+
+    #[test]
+    fn test_is_last_replay_response_request_message_returns_false() {}
+
+    #[test]
+    fn test_is_last_replay_response_event_message_returns_false() {}
+
+    #[test]
+    fn test_is_last_replay_response_no_replay_seq_returns_false() {}
 }
