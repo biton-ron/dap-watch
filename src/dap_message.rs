@@ -35,6 +35,7 @@ pub enum DapMessage {
     },
     Response {
         seq: u64,
+        request_seq: u64,
         raw_bytes: Vec<u8>,
     },
 }
@@ -55,6 +56,16 @@ impl std::fmt::Display for DapMessage {
                     seq, command
                 )
             }
+        }
+    }
+}
+
+impl DapMessage {
+    pub fn seq(&self) -> u64 {
+        match self {
+            DapMessage::Event { seq, .. }
+            | DapMessage::Request { seq, .. }
+            | DapMessage::Response { seq, .. } => *seq,
         }
     }
 }
@@ -99,10 +110,17 @@ pub fn parse_dap_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
                 },
             })
         }
-        "response" => Ok(DapMessage::Response {
-            seq,
-            raw_bytes: Vec::from(full_message),
-        }),
+        "response" => {
+            let request_seq = parsed_json["request_seq"]
+                .as_u64()
+                .context("Could not find request sequence id in resposne message")?;
+
+            Ok(DapMessage::Response {
+                seq,
+                request_seq,
+                raw_bytes: Vec::from(full_message),
+            })
+        }
         "request" => {
             let command_type_str = parsed_json["command"].as_str().context(
                 "Could not parse request: a Request should have a command attached to it as a string",

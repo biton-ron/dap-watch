@@ -10,7 +10,7 @@ use crate::{
     },
     dap_message::{
         DapMessage::{self, Request},
-        RequestCommandTypes::{self},
+        RequestCommandTypes::{self, ConfigurationDone},
     },
     dap_stream::DapStream,
     file_watcher::{FileWatcher, WatcherConfig},
@@ -38,6 +38,7 @@ struct DebugState {
 
 pub struct Proxy {
     state: DebugState,
+    state_last_replay_seq: Option<u64>,
 
     // IDE
     ide: IdeServer,
@@ -69,6 +70,7 @@ impl Proxy {
 
         Ok(Proxy {
             state: DebugState::default(),
+            state_last_replay_seq: None,
             ide,
             ide_stream: None,
             ide_status: IdeStatus::Listening,
@@ -128,6 +130,11 @@ impl Proxy {
                         "Suppressed message during replay: {}",
                         message
                     );
+
+                    if self.is_last_replay_response(&message) {
+                        self.adapter_status = AdapterStatus::Connected;
+                        log!(LogSource::Proxy, "Message replay has finished successfuly");
+                    }
 
                     return Ok(());
                 }
@@ -215,6 +222,8 @@ impl Proxy {
 
     async fn replay_state(&mut self) -> Result<()> {
         if let Some(stream) = &mut self.adapter_stream {
+            log!(LogSource::Proxy, "Init state replay to the new debugger");
+
             self.adapter_status = AdapterStatus::Replaying;
 
             let mut replay_sequence = vec![
@@ -231,23 +240,39 @@ impl Proxy {
 
             replay_sequence.push(self.state.configuration_done.as_ref());
 
-            for message in replay_sequence {
-                if let Some(message) = message {
+            // We're stripping None values from the replay_sequence, leaving only populated state messages
+            let replay_sequence: Vec<&DapMessage> = replay_sequence.into_iter().flatten().collect();
+
+            if replay_sequence.len() > 0 {
+                for message in replay_sequence {
                     stream
                         .write(message)
                         .await
                         .context("Replaying a message has failed")?;
+
+                    // Storing the seq id of the last message in the sequence, this way we can easily identify when responses
+                    // for replay messages are all completed since these replay responses should not be forwarded to the IDE.
+                    // Once the last response arrive, the adapater status is changed to AdapterStatus::Connected and bi-directional flow is resumed.
+                    self.state_last_replay_seq = Some(message.seq());
                 }
+            } else {
+                self.state_last_replay_seq = None;
+                self.adapter_status = AdapterStatus::Connected;
+                log!(LogSource::Proxy, "Message replay has finished successfuly");
             }
-
-            log!(
-                LogSource::Proxy,
-                "Replayed debug state to the new debug adapter"
-            );
-
-            self.adapter_status = AdapterStatus::Connected;
         }
 
         Ok(())
+    }
+
+    fn is_last_replay_response(&self, message: &DapMessage) -> bool {
+        if let DapMessage::Response { request_seq, .. } = message {
+            return self
+                .state_last_replay_seq
+                .as_ref()
+                .is_none_or(|last_replay_seq| request_seq == last_replay_seq);
+        }
+
+        false
     }
 }

@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn test_parse_complete_response() {
         let buffer =
-            make_dap_message(r#"{"seq":1,"type":"response","request_seq":1,"success":true}"#);
+            make_dap_message(r#"{"seq":1,"type":"response","request_seq":15,"success":true}"#);
         let parsed = parse_dap_message(&buffer).unwrap();
 
         match parsed {
@@ -208,6 +208,7 @@ mod tests {
                     message,
                     DapMessage::Response {
                         seq: 1,
+                        request_seq: 15,
                         raw_bytes: buffer
                     }
                 );
