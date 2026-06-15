@@ -30,7 +30,6 @@ pub struct DapAdapter {
     port: Option<u16>,
     process: Option<Child>,
     config: AdapterConfig,
-    status: AdapterStatus,
 }
 
 impl DapAdapter {
@@ -53,7 +52,6 @@ impl DapAdapter {
             .context("Unable to spawn debugger as a child process")?;
 
         self.process = Some(child);
-        self.status = AdapterStatus::Spawned;
         self.port = Some(port);
 
         Ok(())
@@ -69,9 +67,6 @@ impl DapAdapter {
             match stream {
                 Ok(stream) => {
                     let stream = DapStream::new(stream);
-
-                    self.status = AdapterStatus::Connected;
-
                     return Ok(stream);
                 }
                 Err(_) => {

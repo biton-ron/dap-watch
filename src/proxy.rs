@@ -4,7 +4,10 @@ use anyhow::{Context, Result, bail};
 use tokio::select;
 
 use crate::{
-    dap_adapter::{AdapterStatus, DapAdapter},
+    dap_adapter::{
+        AdapterStatus::{self, Replaying},
+        DapAdapter,
+    },
     dap_message::{
         DapMessage::{self, Request},
         RequestCommandTypes::{self},
@@ -39,7 +42,6 @@ pub struct Proxy {
     // IDE
     ide: IdeServer,
     ide_stream: Option<DapStream>,
-    ide_queue: Vec<DebugState>, // Stores a queue of messages to be processed when bi-directional streaming is temporarly disabled (during replay)
     ide_status: IdeStatus,
 
     // Adapter
@@ -69,7 +71,6 @@ impl Proxy {
             state: DebugState::default(),
             ide,
             ide_stream: None,
-            ide_queue: Vec::new(),
             ide_status: IdeStatus::Listening,
             adapter: DapAdapter::new(),
             adapter_stream: None,
@@ -91,7 +92,10 @@ impl Proxy {
                     self.ide_stream = Some(stream.context("Launching IdeServer has failed")?);
                     self.ide_status = IdeStatus::Connected;
                 },
-                message = DapStream::read_stream(&mut self.ide_stream) => self.handle_streaming(StreamSources::Ide, message).await?,
+
+                message = DapStream::read_stream(&mut self.ide_stream), if self.adapter_status == AdapterStatus::Connected => {
+                    self.handle_streaming(StreamSources::Ide, message).await?
+                },
 
                 // Adapter Lifecycle
                 message = DapStream::read_stream(&mut self.adapter_stream) => self.handle_streaming(StreamSources::Adapter, message).await?,
@@ -118,6 +122,14 @@ impl Proxy {
             Ok(Some(message)) => {
                 if source == StreamSources::Ide {
                     self.capture_state(&message);
+                } else if source == StreamSources::Adapter && self.adapter_status == Replaying {
+                    log!(
+                        LogSource::Adapter,
+                        "Suppressed message during replay: {}",
+                        message
+                    );
+
+                    return Ok(());
                 }
 
                 let (forward_stream, log_source) = match source {
@@ -192,6 +204,46 @@ impl Proxy {
             );
 
             log!(LogSource::Proxy, "Proxy is connected to debug adapter");
+
+            self.replay_state()
+                .await
+                .context("Failed to replay messages")?;
+        }
+
+        Ok(())
+    }
+
+    async fn replay_state(&mut self) -> Result<()> {
+        if let Some(stream) = &mut self.adapter_stream {
+            self.adapter_status = AdapterStatus::Replaying;
+
+            let mut replay_sequence = vec![
+                self.state.initialize.as_ref(),
+                self.state.launch.as_ref(),
+                self.state.attach.as_ref(),
+                self.state.exception_breakpoints.as_ref(),
+                self.state.function_breakpoints.as_ref(),
+            ];
+
+            for (.., message) in &self.state.breakpoints {
+                replay_sequence.push(Some(message));
+            }
+
+            replay_sequence.push(self.state.configuration_done.as_ref());
+
+            for message in replay_sequence {
+                if let Some(message) = message {
+                    stream
+                        .write(message)
+                        .await
+                        .context("Replaying a message has failed")?;
+                }
+            }
+
+            log!(
+                LogSource::Proxy,
+                "Replayed debug state to the new debug adapter"
+            );
 
             self.adapter_status = AdapterStatus::Connected;
         }
