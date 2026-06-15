@@ -3,7 +3,7 @@ use anyhow::{Context, Result, bail};
 /// We only specify in this enum commands are required for state preservation.
 /// As an example - setBreakpoints is a crucial part of the state, and will be replayed to debuggers when re-spawned.
 /// Everything else falls into the PassForward() category which will be sent directly by the proxy without thouching state at all.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum RequestCommandTypes {
     Initialize,
     Attach,
@@ -15,13 +15,13 @@ pub enum RequestCommandTypes {
     PassForward(String), // Fallback for all the rest
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum EventTypes {
     Output(String),
     Other(String),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum DapMessage {
     Request {
         seq: u64,

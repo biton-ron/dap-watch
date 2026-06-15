@@ -21,9 +21,8 @@ pub enum AdapterStatus {
     #[default]
     Pending,
     Spawned,
-    Connected,
     Replaying,
-    Alive,
+    Connected,
 }
 
 #[derive(Default)]
@@ -86,6 +85,15 @@ impl DapAdapter {
                 }
             }
         }
+    }
+
+    pub async fn kill(&mut self) -> Result<()> {
+        if let Some(process) = &mut self.process {
+            process.kill().await?;
+            self.process = None;
+        }
+
+        Ok(())
     }
 }
 

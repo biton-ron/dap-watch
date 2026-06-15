@@ -24,13 +24,13 @@ enum StreamSources {
 
 #[derive(Default)]
 struct DebugState {
-    initialize: Option<Vec<u8>>,
-    launch: Option<Vec<u8>>,
-    attach: Option<Vec<u8>>,
-    configuration_done: Option<Vec<u8>>,
-    function_breakpoints: Option<Vec<u8>>,
-    exception_breakpoints: Option<Vec<u8>>,
-    breakpoints: HashMap<String, Vec<u8>>, // Hashed by file path
+    initialize: Option<DapMessage>,
+    launch: Option<DapMessage>,
+    attach: Option<DapMessage>,
+    configuration_done: Option<DapMessage>,
+    function_breakpoints: Option<DapMessage>,
+    exception_breakpoints: Option<DapMessage>,
+    breakpoints: HashMap<String, DapMessage>, // Hashed by file path
 }
 
 pub struct Proxy {
@@ -99,6 +99,9 @@ impl Proxy {
                 // File Watching
                 _ = self.watcher.next() => {
                     log!(LogSource::Watcher, "File changed, rebuilding...");
+                    self.adapter.kill().await.context("Failed to kill debug adapter")?;
+                    self.adapter_stream = None;
+                    self.adapter_status = AdapterStatus::Pending;
                 },
             }
         }
@@ -141,29 +144,26 @@ impl Proxy {
     /// State is only affected by messages that are sent from the IDE, so there is no need to call capture_state when message source is debug adapter.
     fn capture_state(&mut self, message: &DapMessage) {
         // Only requests have some effect on the state
-        if let Request {
-            raw_bytes, command, ..
-        } = message
-        {
-            let raw_bytes = raw_bytes.clone();
+        if let Request { command, .. } = message {
+            let message = message.clone();
 
             match command {
-                RequestCommandTypes::Attach => self.state.attach = Some(raw_bytes),
-                RequestCommandTypes::Initialize => self.state.initialize = Some(raw_bytes),
-                RequestCommandTypes::Launch => self.state.launch = Some(raw_bytes),
+                RequestCommandTypes::Attach => self.state.attach = Some(message),
+                RequestCommandTypes::Initialize => self.state.initialize = Some(message),
+                RequestCommandTypes::Launch => self.state.launch = Some(message),
                 RequestCommandTypes::ConfigurationDone => {
-                    self.state.configuration_done = Some(raw_bytes)
+                    self.state.configuration_done = Some(message)
                 }
                 RequestCommandTypes::SetExceptionBreakpoints => {
-                    self.state.exception_breakpoints = Some(raw_bytes)
+                    self.state.exception_breakpoints = Some(message)
                 }
                 RequestCommandTypes::SetFunctionBreakpoints => {
-                    self.state.function_breakpoints = Some(raw_bytes)
+                    self.state.function_breakpoints = Some(message)
                 }
                 RequestCommandTypes::SetBreakpoints(file_path) => {
                     self.state
                         .breakpoints
-                        .insert(String::from(file_path), raw_bytes);
+                        .insert(String::from(file_path), message);
                 }
                 RequestCommandTypes::PassForward(_) => {}
             }
