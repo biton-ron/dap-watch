@@ -9,7 +9,7 @@ use crate::{
     },
     dap_message::DapMessage::{self},
     dap_stream::DapStream,
-    file_watcher::{FileWatcher, WatcherConfig},
+    file_watcher::FileWatcher,
     ide_server::{IdeServer, IdeStatus},
     log,
     logger::LogSource,
@@ -42,28 +42,27 @@ pub struct Proxy {
 
 impl Proxy {
     pub async fn new(config: Config) -> Result<Proxy> {
-        let watcher = FileWatcher::new(WatcherConfig {}).context("Failed to launch watcher")?;
-        let ide_port = 2500; // TODO: Should come from configuration
-        let ide = IdeServer::new(ide_port)
+        let watcher = FileWatcher::new(&config.watcher).context("Failed to launch watcher")?;
+        let ide = IdeServer::new(config.port)
             .await
             .context("Launching IdeServer has failed")?;
 
         log!(
             LogSource::Proxy,
             "Initiated, proxy is listening on :{}",
-            ide_port
+            config.port
         );
 
         Ok(Proxy {
-            config,
             state: ProxyState::default(),
             ide,
             ide_stream: None,
             ide_status: IdeStatus::Listening,
-            adapter: DapAdapter::new(),
+            adapter: DapAdapter::new(&config.runtime),
             adapter_stream: None,
             adapter_status: AdapterStatus::Pending,
             watcher,
+            config,
         })
     }
 

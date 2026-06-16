@@ -1,4 +1,4 @@
-use crate::dap_stream::DapStream;
+use crate::{config::RuntimeConfig, dap_stream::DapStream};
 
 use anyhow::{Context, Result, bail};
 use std::{env, process::Stdio, time::Duration};
@@ -7,12 +7,6 @@ use tokio::{
     process::{Child, Command},
     time::sleep,
 };
-
-#[derive(Default)]
-struct AdapterConfig {}
-
-const TMP_CODELLB_PATH: &str =
-    "/Users/ronbiton/.vscode/extensions/vadimcn.vscode-lldb-1.12.2/adapter/codelldb";
 
 const CONNECTION_LOOP_MAX_ERRORS: u16 = 30;
 
@@ -25,16 +19,19 @@ pub enum AdapterStatus {
     Connected,
 }
 
-#[derive(Default)]
 pub struct DapAdapter {
     port: Option<u16>,
     process: Option<Child>,
-    config: AdapterConfig,
+    config: RuntimeConfig,
 }
 
 impl DapAdapter {
-    pub fn new() -> DapAdapter {
-        DapAdapter::default()
+    pub fn new(config: &RuntimeConfig) -> DapAdapter {
+        DapAdapter {
+            port: None,
+            process: None,
+            config: config.clone(),
+        }
     }
 
     pub async fn spawn(&mut self) -> Result<()> {
@@ -42,9 +39,10 @@ impl DapAdapter {
             .await
             .context("Port selection for debugger has failed")?;
 
-        let child = Command::new(TMP_CODELLB_PATH)
+        let child = Command::new(&self.config.adapter)
             .arg("--port")
             .arg(port.to_string())
+            .args(&self.config.adapter_args)
             .kill_on_drop(true)
             .stdout(Stdio::null())
             .stderr(Stdio::null())

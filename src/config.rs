@@ -1,6 +1,7 @@
 use std::vec;
 
 /// File watcher configuration
+#[derive(Clone)]
 pub struct WatcherConfig {
     /// Paths to watch for file changes, supports glob patterns (e.g., "src/**/*.rs")
     pub paths: Vec<String>,
@@ -13,6 +14,7 @@ pub struct WatcherConfig {
 }
 
 /// Runtime configuration for the build, program, and debug adapter
+#[derive(Clone)]
 pub struct RuntimeConfig {
     /// Path to the debug adapter binary (e.g., "/path/to/codelldb")
     pub adapter: String,
