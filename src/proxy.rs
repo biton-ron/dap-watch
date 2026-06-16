@@ -2,6 +2,7 @@ use anyhow::{Context, Result, bail};
 use tokio::select;
 
 use crate::{
+    config::Config,
     dap_adapter::{
         AdapterStatus::{self, Replaying},
         DapAdapter,
@@ -22,6 +23,7 @@ enum StreamSources {
 }
 
 pub struct Proxy {
+    config: Config,
     state: ProxyState,
 
     // IDE
@@ -39,7 +41,7 @@ pub struct Proxy {
 }
 
 impl Proxy {
-    pub async fn new() -> Result<Proxy> {
+    pub async fn new(config: Config) -> Result<Proxy> {
         let watcher = FileWatcher::new(WatcherConfig {}).context("Failed to launch watcher")?;
         let ide_port = 2500; // TODO: Should come from configuration
         let ide = IdeServer::new(ide_port)
@@ -53,6 +55,7 @@ impl Proxy {
         );
 
         Ok(Proxy {
+            config,
             state: ProxyState::default(),
             ide,
             ide_stream: None,
