@@ -23,7 +23,7 @@ pub struct ProxyState {
 impl ProxyState {
     /// Captures relevant IDE messages into debug state for replay.
     /// Returns the command type if state was updated, `None` otherwise.
-    pub fn capture_state(&mut self, message: &DapMessage) -> Option<RequestCommandTypes> {
+    pub fn capture(&mut self, message: &DapMessage) -> Option<RequestCommandTypes> {
         // Only requests have some effect on the state
         if let Request { command, .. } = message {
             let message = message.clone();
@@ -119,21 +119,21 @@ mod test {
         let initialize = make_request(1, RequestCommandTypes::Initialize);
         let attach = make_request(2, RequestCommandTypes::Attach);
         let launch = make_request(3, RequestCommandTypes::Launch);
-        let configuration_done = make_request(5, RequestCommandTypes::ConfigurationDone);
-        let exception_breakpoints = make_request(6, RequestCommandTypes::SetExceptionBreakpoints);
-        let function_breakpoints = make_request(7, RequestCommandTypes::SetFunctionBreakpoints);
+        let exception_breakpoints = make_request(4, RequestCommandTypes::SetExceptionBreakpoints);
+        let function_breakpoints = make_request(5, RequestCommandTypes::SetFunctionBreakpoints);
         let breakpoints = make_request(
-            8,
+            6,
             RequestCommandTypes::SetBreakpoints(String::from("testfile.rs")),
         );
+        let configuration_done = make_request(7, RequestCommandTypes::ConfigurationDone);
 
-        state.capture_state(&initialize);
-        state.capture_state(&attach);
-        state.capture_state(&launch);
-        state.capture_state(&configuration_done);
-        state.capture_state(&exception_breakpoints);
-        state.capture_state(&function_breakpoints);
-        state.capture_state(&breakpoints);
+        state.capture(&initialize);
+        state.capture(&attach);
+        state.capture(&launch);
+        state.capture(&exception_breakpoints);
+        state.capture(&function_breakpoints);
+        state.capture(&breakpoints);
+        state.capture(&configuration_done);
 
         assert_eq!(state.initialize, Some(initialize));
         assert_eq!(state.attach, Some(attach));
@@ -164,8 +164,8 @@ mod test {
             RequestCommandTypes::SetBreakpoints(String::from("file_b.rs")),
         );
 
-        state.capture_state(&file_a_breakpoints);
-        state.capture_state(&file_b_breakpoints);
+        state.capture(&file_a_breakpoints);
+        state.capture(&file_b_breakpoints);
 
         assert!(
             state
@@ -187,7 +187,7 @@ mod test {
         let mut state = ProxyState::default();
         let message = make_request(1, PassForward(String::from("Evaluate")));
 
-        assert_eq!(state.capture_state(&message), None);
+        assert_eq!(state.capture(&message), None);
     }
 
     #[test]
@@ -199,7 +199,7 @@ mod test {
             raw_bytes: vec![],
         };
 
-        assert_eq!(state.capture_state(&message), None);
+        assert_eq!(state.capture(&message), None);
     }
 
     #[test]
@@ -211,38 +211,158 @@ mod test {
             event: EventTypes::Output(String::from("Test Output")),
         };
 
-        assert_eq!(state.capture_state(&message), None);
+        assert_eq!(state.capture(&message), None);
     }
 
     // get_replay_sequence tests
     #[test]
-    fn test_replay_sequence_order_initialize_first_config_done_last() {}
+    fn test_replay_sequence_order_initialize_first_config_done_last() {
+        let mut state = ProxyState::default();
+
+        let initialize = make_request(1, RequestCommandTypes::Initialize);
+        let breakpoints_a = make_request(
+            2,
+            RequestCommandTypes::SetBreakpoints(String::from("testfile_a.rs")),
+        );
+        let configuration_done = make_request(3, RequestCommandTypes::ConfigurationDone);
+        let breakpoints_b = make_request(
+            4,
+            RequestCommandTypes::SetBreakpoints(String::from("testfile_b.rs")),
+        );
+
+        state.capture(&initialize);
+        state.capture(&breakpoints_a);
+        state.capture(&configuration_done);
+        state.capture(&breakpoints_b);
+
+        let sequence = state.get_replay_sequence();
+
+        assert_eq!(sequence.first(), Some(&&initialize));
+        assert_eq!(sequence.last(), Some(&&configuration_done));
+    }
 
     #[test]
-    fn test_replay_sequence_empty_state_returns_empty() {}
+    fn test_replay_sequence_empty_state_returns_empty() {
+        let mut state = ProxyState::default();
+        let sequence = state.get_replay_sequence();
+
+        assert_eq!(sequence.len(), 0);
+    }
 
     #[test]
-    fn test_replay_sequence_skips_none_fields() {}
+    fn test_replay_sequence_full_correct() {
+        let mut state = ProxyState::default();
 
-    #[test]
-    fn test_replay_sequence_includes_breakpoints() {}
+        let initialize = make_request(1, RequestCommandTypes::Initialize);
+        let attach = make_request(2, RequestCommandTypes::Attach);
+        let launch = make_request(3, RequestCommandTypes::Launch);
+        let exception_breakpoints = make_request(4, RequestCommandTypes::SetExceptionBreakpoints);
+        let function_breakpoints = make_request(5, RequestCommandTypes::SetFunctionBreakpoints);
+        let breakpoints_a = make_request(
+            6,
+            RequestCommandTypes::SetBreakpoints(String::from("testfile_a.rs")),
+        );
+        let configuration_done = make_request(7, RequestCommandTypes::ConfigurationDone);
+        let breakpoints_b = make_request(
+            8,
+            RequestCommandTypes::SetBreakpoints(String::from("testfile_b.rs")),
+        );
 
-    #[test]
-    fn test_replay_sequence_sets_last_replayed_seq() {}
+        state.capture(&initialize);
+        state.capture(&attach);
+        state.capture(&launch);
+        state.capture(&exception_breakpoints);
+        state.capture(&function_breakpoints);
+        state.capture(&breakpoints_a);
+        state.capture(&configuration_done);
+        state.capture(&breakpoints_b);
+
+        let sequence = state.get_replay_sequence();
+
+        assert_eq!(sequence.len(), 8);
+
+        // Sequence always starts with initation related messages
+        let start = &sequence[0..=2];
+        assert_eq!(start[0], &initialize);
+        assert!(start.contains(&&launch)); // In real usage, state should never have both launch and attach at the same time, this is why order does not matter here.
+        assert!(start.contains(&&attach));
+
+        // Mid-section always have breakpoints (order of breakpoints is not important)
+        let middle = &sequence[3..=6];
+        assert!(middle.contains(&&exception_breakpoints));
+        assert!(middle.contains(&&function_breakpoints));
+        assert!(middle.contains(&&breakpoints_a));
+        assert!(middle.contains(&&breakpoints_b));
+
+        // Confirms that configuration is always last
+        assert_eq!(sequence.last(), Some(&&configuration_done));
+        assert_eq!(state.last_replayed_seq.unwrap(), configuration_done.seq()); // Regardless of order of capture, if configuration done is present, its seq should be last
+    }
 
     // is_last_replay_response tests
     #[test]
-    fn test_is_last_replay_response_matching_seq_returns_true() {}
+    fn test_is_last_replay_response() {
+        let mut state = ProxyState::default();
+
+        let initialize = make_request(1, RequestCommandTypes::Initialize);
+        let attach = make_request(2, RequestCommandTypes::Attach);
+        let configuration_done = make_request(3, RequestCommandTypes::ConfigurationDone);
+
+        state.capture(&initialize);
+        state.capture(&attach);
+        state.capture(&configuration_done);
+
+        _ = state.get_replay_sequence();
+
+        // Response with request_seq matching last replay message
+        let response = DapMessage::Response {
+            seq: 5,
+            request_seq: 3,
+            raw_bytes: vec![],
+        };
+
+        assert!(state.is_last_replay_response(&response));
+
+        // Response not matching
+        let response = DapMessage::Response {
+            seq: 5,
+            request_seq: 2,
+            raw_bytes: vec![],
+        };
+
+        assert!(!state.is_last_replay_response(&response));
+
+        // Message types is not response
+        let another_request = make_request(4, RequestCommandTypes::SetExceptionBreakpoints);
+        let some_event = DapMessage::Event {
+            seq: 5,
+            raw_bytes: vec![],
+            event: EventTypes::Output(String::from("Test output")),
+        };
+
+        assert!(!state.is_last_replay_response(&another_request));
+        assert!(!state.is_last_replay_response(&some_event));
+    }
 
     #[test]
-    fn test_is_last_replay_response_non_matching_seq_returns_false() {}
+    fn test_is_last_replay_response_no_replay_seq_returns_false() {
+        let mut state = ProxyState::default();
 
-    #[test]
-    fn test_is_last_replay_response_request_message_returns_false() {}
+        let initialize = make_request(1, RequestCommandTypes::Initialize);
+        let attach = make_request(2, RequestCommandTypes::Attach);
+        let configuration_done = make_request(3, RequestCommandTypes::ConfigurationDone);
 
-    #[test]
-    fn test_is_last_replay_response_event_message_returns_false() {}
+        state.capture(&initialize);
+        state.capture(&attach);
+        state.capture(&configuration_done);
 
-    #[test]
-    fn test_is_last_replay_response_no_replay_seq_returns_false() {}
+        let response = DapMessage::Response {
+            seq: 5,
+            request_seq: 3,
+            raw_bytes: vec![],
+        };
+
+        // Even though request_seq matches last request (configuration), it should retrun false, since state.get_replay_sequence wasn't called
+        assert!(!state.is_last_replay_response(&response));
+    }
 }

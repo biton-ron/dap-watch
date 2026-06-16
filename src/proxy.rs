@@ -106,7 +106,7 @@ impl Proxy {
             Ok(None) => {}
             Ok(Some(message)) => {
                 if source == StreamSources::Ide {
-                    if let Some(command) = self.state.capture_state(&message) {
+                    if let Some(command) = self.state.capture(&message) {
                         log!(LogSource::Proxy, "State captured: {:?}", command);
                     }
                 } else if source == StreamSources::Adapter && self.adapter_status == Replaying {
