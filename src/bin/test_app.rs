@@ -4,7 +4,7 @@ use tokio::time::sleep;
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     loop {
-        println!("test_app is iterarting...");
+        println!("lets change the text here...");
         sleep(Duration::from_secs(5)).await;
     }
 }

@@ -1,5 +1,7 @@
+use std::process::ExitStatus;
+
 use anyhow::{Context, Result, bail};
-use tokio::select;
+use tokio::{process::Command, select, task::JoinHandle};
 
 use crate::{
     config::Config,
@@ -31,10 +33,11 @@ pub struct Proxy {
     ide_stream: Option<DapStream>,
     ide_status: IdeStatus,
 
-    // Adapter
+    // Runtime
     adapter: DapAdapter,
     adapter_stream: Option<DapStream>,
     adapter_status: AdapterStatus,
+    build_handle: Option<JoinHandle<Result<ExitStatus>>>,
 
     // Watcher
     watcher: FileWatcher,
@@ -61,6 +64,7 @@ impl Proxy {
             adapter: DapAdapter::new(&config.runtime),
             adapter_stream: None,
             adapter_status: AdapterStatus::Pending,
+            build_handle: None,
             watcher,
             config,
         })
@@ -90,10 +94,19 @@ impl Proxy {
                 // File Watching
                 _ = self.watcher.next() => {
                     log!(LogSource::Watcher, "File changed, rebuilding...");
-                    self.adapter.kill().await.context("Failed to kill debug adapter")?;
-                    self.adapter_stream = None;
-                    self.adapter_status = AdapterStatus::Pending;
+                    self.rebuild().await?;
                 },
+
+                // Wait for building to complete
+                result = Proxy::await_build(&mut self.build_handle), if self.adapter_status == AdapterStatus::Building => {
+
+                    match result {
+                        Ok(_status) => {
+                            self.adapter_status = AdapterStatus::Pending;
+                        },
+                        Err(_) => {}
+                    }
+                }
             }
         }
     }
@@ -196,4 +209,50 @@ impl Proxy {
 
         Ok(())
     }
+
+    async fn rebuild(&mut self) -> Result<()> {
+        self.adapter
+            .kill()
+            .await
+            .context("Failed to kill debug adapter")?;
+
+        self.adapter_stream = None;
+        self.adapter_status = AdapterStatus::Building;
+
+        let build_cmd = self.config.runtime.build.clone();
+
+        self.build_handle = Some(tokio::spawn(async move {
+            // Execute the build command configured by the user
+            build_command(build_cmd)
+                .status()
+                .await
+                .context("Proxy has failed re-building the program")
+        }));
+
+        Ok(())
+    }
+
+    /// Wraps an optional build_handler as a standalone future, so it could be easily used in a select! arm
+    async fn await_build(
+        build_handler: &mut Option<JoinHandle<Result<ExitStatus>>>,
+    ) -> Result<ExitStatus> {
+        match build_handler {
+            Some(handler) => handler.await?,
+            None => std::future::pending().await,
+        }
+    }
+}
+
+#[cfg(unix)]
+fn build_command(cmd: String) -> Command {
+    let mut c = Command::new("sh");
+    c.arg("-c").arg(cmd);
+    c
+}
+
+#[cfg(windows)]
+fn build_command(cmd: String) -> Command {
+    let mut c = Command::new("cmd");
+    c.arg("/C").arg(cmd);
+    c
 }

@@ -13,6 +13,7 @@ const CONNECTION_LOOP_MAX_ERRORS: u16 = 30;
 #[derive(Default, PartialEq)]
 pub enum AdapterStatus {
     #[default]
+    Building,
     Pending,
     Spawned,
     Replaying,
