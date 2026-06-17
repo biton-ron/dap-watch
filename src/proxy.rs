@@ -1,7 +1,7 @@
 use std::process::ExitStatus;
 
 use anyhow::{Context, Result, bail};
-use tokio::{process::Command, select, task::JoinHandle};
+use tokio::{select, task::JoinHandle};
 
 use crate::{
     config::Config,
@@ -12,7 +12,7 @@ use crate::{
     log,
     logger::LogSource,
     proxy_state::ProxyState,
-    runtime::RuntimeHandler,
+    runtime::Runtime,
 };
 
 #[derive(PartialEq)]
@@ -41,7 +41,7 @@ pub struct Proxy {
     ide_status: IdeStatus,
 
     // Runtime
-    runtime: RuntimeHandler,
+    runtime: Runtime,
     runtime_status: RuntimeStatus,
     adapter_stream: Option<DapStream>,
     build_handle: Option<JoinHandle<Result<ExitStatus>>>,
@@ -68,7 +68,7 @@ impl Proxy {
             ide,
             ide_stream: None,
             ide_status: IdeStatus::Listening,
-            runtime: RuntimeHandler::new(&config.runtime),
+            runtime: Runtime::new(&config.runtime),
             adapter_stream: None,
             runtime_status: RuntimeStatus::Pending,
             build_handle: None,
@@ -177,6 +177,8 @@ impl Proxy {
                 .context("Failed spawning debug process")?;
 
             log!(LogSource::Proxy, "Debug adapter spawned");
+
+            self.runtime_status = RuntimeStatus::Spawned;
 
             self.adapter_stream = Some(
                 self.runtime

@@ -14,15 +14,20 @@ use tokio::{
 
 const CONNECTION_LOOP_MAX_ERRORS: u16 = 30;
 
-pub struct RuntimeHandler {
+pub enum RuntimeMode {
+    Direct,
+    Debug,
+}
+
+pub struct Runtime {
     port: Option<u16>,
     process: Option<Child>,
     config: RuntimeConfig,
 }
 
-impl RuntimeHandler {
-    pub fn new(config: &RuntimeConfig) -> RuntimeHandler {
-        RuntimeHandler {
+impl Runtime {
+    pub fn new(config: &RuntimeConfig) -> Runtime {
+        Runtime {
             port: None,
             process: None,
             config: config.clone(),
