@@ -5,10 +5,6 @@ use tokio::{process::Command, select, task::JoinHandle};
 
 use crate::{
     config::Config,
-    dap_adapter::{
-        AdapterStatus::{self, Replaying},
-        DapAdapter,
-    },
     dap_message::DapMessage::{self},
     dap_stream::DapStream,
     file_watcher::FileWatcher,
@@ -16,12 +12,23 @@ use crate::{
     log,
     logger::LogSource,
     proxy_state::ProxyState,
+    runtime::RuntimeHandler,
 };
 
 #[derive(PartialEq)]
 enum StreamSources {
     Ide,
     Adapter,
+}
+
+#[derive(Default, PartialEq)]
+pub enum RuntimeStatus {
+    #[default]
+    Building,
+    Pending,
+    Spawned,
+    Replaying,
+    Live,
 }
 
 pub struct Proxy {
@@ -34,9 +41,9 @@ pub struct Proxy {
     ide_status: IdeStatus,
 
     // Runtime
-    adapter: DapAdapter,
+    runtime: RuntimeHandler,
+    runtime_status: RuntimeStatus,
     adapter_stream: Option<DapStream>,
-    adapter_status: AdapterStatus,
     build_handle: Option<JoinHandle<Result<ExitStatus>>>,
 
     // Watcher
@@ -61,9 +68,9 @@ impl Proxy {
             ide,
             ide_stream: None,
             ide_status: IdeStatus::Listening,
-            adapter: DapAdapter::new(&config.runtime),
+            runtime: RuntimeHandler::new(&config.runtime),
             adapter_stream: None,
-            adapter_status: AdapterStatus::Pending,
+            runtime_status: RuntimeStatus::Pending,
             build_handle: None,
             watcher,
             config,
@@ -84,7 +91,7 @@ impl Proxy {
                     self.ide_status = IdeStatus::Connected;
                 },
 
-                message = DapStream::read_stream(&mut self.ide_stream), if self.adapter_status == AdapterStatus::Connected => {
+                message = DapStream::read_stream(&mut self.ide_stream), if self.runtime_status == RuntimeStatus::Live => {
                     self.handle_streaming(StreamSources::Ide, message).await?
                 },
 
@@ -98,11 +105,11 @@ impl Proxy {
                 },
 
                 // Wait for building to complete
-                result = Proxy::await_build(&mut self.build_handle), if self.adapter_status == AdapterStatus::Building => {
+                result = Proxy::await_build(&mut self.build_handle), if self.runtime_status == RuntimeStatus::Building => {
 
                     match result {
                         Ok(_status) => {
-                            self.adapter_status = AdapterStatus::Pending;
+                            self.runtime_status = RuntimeStatus::Pending;
                         },
                         Err(_) => {}
                     }
@@ -124,7 +131,9 @@ impl Proxy {
                     if let Some(command) = self.state.capture(&message) {
                         log!(LogSource::Proxy, "State captured: {:?}", command);
                     }
-                } else if source == StreamSources::Adapter && self.adapter_status == Replaying {
+                } else if source == StreamSources::Adapter
+                    && self.runtime_status == RuntimeStatus::Replaying
+                {
                     log!(
                         LogSource::Adapter,
                         "Suppressed message during replay: {}",
@@ -132,7 +141,7 @@ impl Proxy {
                     );
 
                     if self.state.is_last_replay_response(&message) {
-                        self.adapter_status = AdapterStatus::Connected;
+                        self.runtime_status = RuntimeStatus::Live;
                         log!(LogSource::Proxy, "Message replay has finished successfuly");
                     }
 
@@ -161,8 +170,8 @@ impl Proxy {
 
     // Spawn the debugger, connect
     async fn spawn_adapter(&mut self) -> Result<()> {
-        if self.adapter_status == AdapterStatus::Pending {
-            self.adapter
+        if self.runtime_status == RuntimeStatus::Pending {
+            self.runtime
                 .spawn()
                 .await
                 .context("Failed spawning debug process")?;
@@ -170,7 +179,7 @@ impl Proxy {
             log!(LogSource::Proxy, "Debug adapter spawned");
 
             self.adapter_stream = Some(
-                self.adapter
+                self.runtime
                     .connect()
                     .await
                     .context("Unable to connect to the debugger process")?,
@@ -190,7 +199,7 @@ impl Proxy {
         if let Some(stream) = &mut self.adapter_stream {
             log!(LogSource::Proxy, "Init state replay to the new debugger");
 
-            self.adapter_status = AdapterStatus::Replaying;
+            self.runtime_status = RuntimeStatus::Replaying;
 
             let replay_sequence = self.state.get_replay_sequence();
 
@@ -202,7 +211,7 @@ impl Proxy {
                         .context("Replaying a message has failed")?;
                 }
             } else {
-                self.adapter_status = AdapterStatus::Connected;
+                self.runtime_status = RuntimeStatus::Live;
                 log!(LogSource::Proxy, "Message replay has finished successfuly");
             }
         }
@@ -211,23 +220,15 @@ impl Proxy {
     }
 
     async fn rebuild(&mut self) -> Result<()> {
-        self.adapter
+        self.runtime
             .kill()
             .await
             .context("Failed to kill debug adapter")?;
 
         self.adapter_stream = None;
-        self.adapter_status = AdapterStatus::Building;
+        self.runtime_status = RuntimeStatus::Building;
 
-        let build_cmd = self.config.runtime.build.clone();
-
-        self.build_handle = Some(tokio::spawn(async move {
-            // Execute the build command configured by the user
-            build_command(build_cmd)
-                .status()
-                .await
-                .context("Proxy has failed re-building the program")
-        }));
+        self.build_handle = Some(self.runtime.build());
 
         Ok(())
     }
@@ -241,18 +242,4 @@ impl Proxy {
             None => std::future::pending().await,
         }
     }
-}
-
-#[cfg(unix)]
-fn build_command(cmd: String) -> Command {
-    let mut c = Command::new("sh");
-    c.arg("-c").arg(cmd);
-    c
-}
-
-#[cfg(windows)]
-fn build_command(cmd: String) -> Command {
-    let mut c = Command::new("cmd");
-    c.arg("/C").arg(cmd);
-    c
 }

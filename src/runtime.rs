@@ -1,34 +1,28 @@
 use crate::{config::RuntimeConfig, dap_stream::DapStream};
 
 use anyhow::{Context, Result, bail};
-use std::{env, process::Stdio, time::Duration};
+use std::{
+    process::{ExitStatus, Stdio},
+    time::Duration,
+};
 use tokio::{
     net::{TcpListener, TcpStream},
     process::{Child, Command},
+    task::JoinHandle,
     time::sleep,
 };
 
 const CONNECTION_LOOP_MAX_ERRORS: u16 = 30;
 
-#[derive(Default, PartialEq)]
-pub enum AdapterStatus {
-    #[default]
-    Building,
-    Pending,
-    Spawned,
-    Replaying,
-    Connected,
-}
-
-pub struct DapAdapter {
+pub struct RuntimeHandler {
     port: Option<u16>,
     process: Option<Child>,
     config: RuntimeConfig,
 }
 
-impl DapAdapter {
-    pub fn new(config: &RuntimeConfig) -> DapAdapter {
-        DapAdapter {
+impl RuntimeHandler {
+    pub fn new(config: &RuntimeConfig) -> RuntimeHandler {
+        RuntimeHandler {
             port: None,
             process: None,
             config: config.clone(),
@@ -89,6 +83,18 @@ impl DapAdapter {
 
         Ok(())
     }
+
+    pub fn build(&self) -> JoinHandle<Result<ExitStatus>> {
+        let build_cmd = self.config.build.clone();
+
+        tokio::spawn(async {
+            // Execute the build command configured by the user
+            shell(build_cmd)
+                .status()
+                .await
+                .context("Proxy has failed re-building the program")
+        })
+    }
 }
 
 async fn port_selection() -> Result<u16> {
@@ -101,4 +107,19 @@ async fn port_selection() -> Result<u16> {
     drop(tmp_listener);
 
     return Ok(port);
+}
+
+// Platform specific shells
+#[cfg(unix)]
+fn shell(cmd: String) -> Command {
+    let mut c = Command::new("sh");
+    c.arg("-c").arg(cmd);
+    c
+}
+
+#[cfg(windows)]
+fn shell(cmd: String) -> Command {
+    let mut c = Command::new("cmd");
+    c.arg("/C").arg(cmd);
+    c
 }
