@@ -1,8 +1,10 @@
 use anyhow::Result;
+use clap::Parser;
 use proxy::Proxy;
 
-use crate::config::Config;
+use crate::{cli::Cli, config::Config};
 
+mod cli;
 mod config;
 mod dap_message;
 mod dap_stream;
@@ -15,9 +17,11 @@ mod runtime;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    let config = Config::build(None);
-    let mut proxy = Proxy::new(config).await?;
-    proxy.run().await?;
+    Cli::parse();
+
+    // let config = Config::build(None);
+    // let mut proxy = Proxy::new(config).await?;
+    // proxy.run().await?;
 
     Ok(())
 }
