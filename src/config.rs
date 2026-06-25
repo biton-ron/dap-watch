@@ -1,7 +1,12 @@
-use std::vec;
+use crate::cli;
+use anyhow::Result;
+use config::{Config, ConfigError};
+use serde::{Deserialize, Serialize};
+use std::{fs, vec};
 
 /// File watcher configuration
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
 pub struct WatcherConfig {
     /// Paths to watch for file changes, supports glob patterns (e.g., "src/**/*.rs")
     pub paths: Vec<String>,
@@ -14,7 +19,8 @@ pub struct WatcherConfig {
 }
 
 /// Runtime configuration for the build, program, and debug adapter
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
 pub struct RuntimeConfig {
     /// Path to the debug adapter binary (e.g., "/path/to/codelldb")
     pub adapter: String,
@@ -30,17 +36,55 @@ pub struct RuntimeConfig {
     pub program_env_file: Option<String>,
 }
 
-/// Root configuration for dap-watch
-pub struct Config {
+/// Min configuration for dap-watch
+#[derive(Deserialize, Serialize)]
+pub struct MainConfig {
     /// Port the proxy listens on for IDE connections
     pub port: u16,
     pub runtime: RuntimeConfig,
     pub watcher: WatcherConfig,
 }
 
-impl Config {
-    pub fn build(config_file: Option<String>) -> Config {
-        return Config {
+pub const DEFAULT_CONFIG_FILE_PATH: &str = "dap-watch.toml";
+
+impl MainConfig {
+    pub fn build(cli_args: cli::MainArgs) -> Result<MainConfig, ConfigError> {
+        // Defaults
+        let defaults = MainConfig::detect_defaults();
+        let mut builder = Config::builder().add_source(config::Config::try_from(&defaults)?);
+
+        // Config file
+        if let Ok(true) = fs::exists(&cli_args.config) {
+            builder = builder.add_source(config::File::with_name(&cli_args.config));
+        } else if cli_args.config != DEFAULT_CONFIG_FILE_PATH {
+            // In case a config file was explicitly provided, it must exist
+            return Err(ConfigError::Message(format!(
+                "Config file '{}' not found",
+                cli_args.config
+            )));
+        }
+
+        // CLI overrides
+        if let Some(port) = &cli_args.port {
+            builder = builder.set_override("port", *port)?;
+        }
+
+        if let Some(program) = &cli_args.program {
+            builder = builder.set_override("runtime.program", program.as_str())?;
+        }
+
+        if let Some(build) = &cli_args.build {
+            builder = builder.set_override("runtime.build", build.as_str())?;
+        }
+
+        let config = builder.build()?.try_deserialize::<MainConfig>();
+
+        config
+    }
+
+    /// TODO: Auto detect defaults by folder structure
+    fn detect_defaults() -> MainConfig {
+        MainConfig {
             port: 2500,
             runtime: RuntimeConfig {
                 adapter: String::from(
@@ -58,6 +102,10 @@ impl Config {
                 gitignore: true,
                 debounce_ms: 500,
             },
-        };
+        }
+    }
+
+    pub fn init() {
+        println!("Hello!");
     }
 }

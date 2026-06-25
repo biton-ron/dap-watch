@@ -1,3 +1,4 @@
+use crate::config::DEFAULT_CONFIG_FILE_PATH;
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Subcommand)]
@@ -29,7 +30,7 @@ pub struct MainArgs {
     pub port: Option<u16>,
 
     /// Path to configuration file
-    #[arg(long, short, default_value = "dap-watch.toml")]
+    #[arg(long, short, default_value = DEFAULT_CONFIG_FILE_PATH)]
     pub config: String,
 
     /// Build command override (overrides config file)

@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use tokio::{select, task::JoinHandle};
 
 use crate::{
-    config::Config,
+    config::MainConfig,
     dap_message::DapMessage::{self},
     dap_stream::DapStream,
     file_watcher::FileWatcher,
@@ -32,7 +32,7 @@ pub enum RuntimeStatus {
 }
 
 pub struct Proxy {
-    config: Config,
+    config: MainConfig,
     state: ProxyState,
 
     // IDE
@@ -51,7 +51,7 @@ pub struct Proxy {
 }
 
 impl Proxy {
-    pub async fn new(config: Config) -> Result<Proxy> {
+    pub async fn new(config: MainConfig) -> Result<Proxy> {
         let watcher = FileWatcher::new(&config.watcher).context("Failed to launch watcher")?;
         let ide = IdeServer::new(config.port)
             .await

@@ -2,7 +2,10 @@ use anyhow::Result;
 use clap::Parser;
 use proxy::Proxy;
 
-use crate::{cli::Cli, config::Config};
+use crate::{
+    cli::{Cli, Commands},
+    config::MainConfig,
+};
 
 mod cli;
 mod config;
@@ -17,11 +20,16 @@ mod runtime;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    Cli::parse();
+    let cli = Cli::parse();
 
-    // let config = Config::build(None);
-    // let mut proxy = Proxy::new(config).await?;
-    // proxy.run().await?;
+    match cli.command {
+        Some(Commands::Init(_)) => MainConfig::init(),
+        None => {
+            let config = MainConfig::build(cli.main)?;
+            let mut proxy = Proxy::new(config).await?;
+            proxy.run().await?;
+        }
+    }
 
     Ok(())
 }
