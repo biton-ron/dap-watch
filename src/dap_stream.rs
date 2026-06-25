@@ -6,7 +6,7 @@ use tokio::{
     net::TcpStream,
 };
 
-use crate::dap_message::{DapMessage, parse_dap_body};
+use crate::dap_message::DapMessage;
 
 pub struct DapStream {
     stream: Option<TcpStream>,
@@ -23,7 +23,7 @@ impl DapStream {
 
     pub async fn read(&mut self) -> Result<Option<DapMessage>> {
         loop {
-            let parsed = parse_dap_message(&self.buffer);
+            let parsed = DapStream::parse_message(&self.buffer);
 
             match parsed {
                 Ok(None) => {}
@@ -73,85 +73,85 @@ impl DapStream {
         Ok(())
     }
 
-    // Helper that wraps an optional DapStream as a Future.
-    // This makes it easier to use DapStram.read on select! loop while DapStream is optionally None (Future will not resolve if thats the case).
+    /// Helper that wraps an optional DapStream as a Future.
+    /// This makes it easier to use DapStram.read on select! loop while DapStream is optionally None (Future will not resolve if thats the case).
     pub async fn read_stream(stream: &mut Option<DapStream>) -> Result<Option<DapMessage>> {
         match stream {
             Some(stream) => stream.read().await,
             None => std::future::pending().await,
         }
     }
+
+    /// Takes a bytes buffer and parse its headers and body looking for a DAP message.
+    /// DAP messages are plain JSON with Content-Length header as following:
+    /// "Content-Length: 12\r\n\r\n{ ... }"
+    ///
+    /// When parsing is sucessful (no errors), this function returns Option<DapMessage, Vec<u8>>, why optional? because buffer is inhertily incomplete, which means:
+    /// 1. There is no gurantee that buffer holds a full message yet.
+    /// 2. Buffer in many cases will include some bytes for the next message.
+    ///
+    /// So to answer both:
+    /// 1. If a complete message could not be found in the buffer, return None.
+    /// 2. If a message was found in the buffer - return a DapMessage and a subset buffer with the leftover bytes.
+    ///
+    /// If there is an error, the Result::Err would be returned.
+    fn parse_message(buffer: &[u8]) -> Result<Option<(DapMessage, Vec<u8>)>> {
+        // Looking for the first new line ("\r\n\r\n") in the buffer, this marks the end of the Content-Length header
+        let new_line_index = buffer
+            .windows(HEADER_DELIMITER_LENGTH)
+            .position(|w| w == HEADER_DELIMITER);
+
+        if let Some(new_line_index) = new_line_index {
+            let header = &buffer[0..new_line_index];
+            let body_length_str = String::from_utf8_lossy(header).replace("Content-Length: ", "");
+            let body_length = body_length_str
+                .parse::<usize>()
+                .context("Parsing Content-Length header has failed, no length was found")?;
+            let body_start_index = new_line_index + HEADER_DELIMITER_LENGTH;
+            let body_end_index = body_start_index + body_length;
+
+            if buffer.len() < body_start_index + body_length {
+                // Buffer does not include the full body of the message, Ok(None) since its not neceserally an error, but most likely an incomplete buffer
+                return Ok(None);
+            }
+
+            let body = &buffer[body_start_index..body_end_index];
+            let parsed_message = DapMessage::parse_body(body, &buffer[0..body_end_index])
+                .context("Failed to parse DAP message body")?;
+
+            // Anything in the buffer that did not belong to the parsed message is kept as leftovers (if any)
+            let buffer_leftovers = if body_end_index == buffer.len() {
+                vec![]
+            } else {
+                Vec::from(&buffer[body_start_index + body_length..buffer.len()])
+            };
+
+            return Ok(Some((parsed_message, buffer_leftovers)));
+        }
+
+        Ok(None)
+    }
 }
 
 const HEADER_DELIMITER: &[u8] = b"\r\n\r\n";
 const HEADER_DELIMITER_LENGTH: usize = 4;
 
-/// Takes a bytes buffer and parse its headers and body looking for a DAP message.
-/// DAP messages are plain JSON with Content-Length header as following:
-/// "Content-Length: 12\r\n\r\n{ ... }"
-///
-/// When parsing is sucessful (no errors), this function returns Option<DapMessage, Vec<u8>>, why optional? because buffer is inhertily incomplete, which means:
-/// 1. There is no gurantee that buffer holds a full message yet.
-/// 2. Buffer in many cases will include some bytes for the next message.
-///
-/// So to answer both:
-/// 1. If a complete message could not be found in the buffer, return None.
-/// 2. If a message was found in the buffer - return a DapMessage and a subset buffer with the leftover bytes.
-///
-/// If there is an error, the Result::Err would be returned.
-fn parse_dap_message(buffer: &[u8]) -> Result<Option<(DapMessage, Vec<u8>)>> {
-    // Looking for the first new line ("\r\n\r\n") in the buffer, this marks the end of the Content-Length header
-    let new_line_index = buffer
-        .windows(HEADER_DELIMITER_LENGTH)
-        .position(|w| w == HEADER_DELIMITER);
-
-    if let Some(new_line_index) = new_line_index {
-        let header = &buffer[0..new_line_index];
-        let body_length_str = String::from_utf8_lossy(header).replace("Content-Length: ", "");
-        let body_length = body_length_str
-            .parse::<usize>()
-            .context("Parsing Content-Length header has failed, no length was found")?;
-        let body_start_index = new_line_index + HEADER_DELIMITER_LENGTH;
-        let body_end_index = body_start_index + body_length;
-
-        if buffer.len() < body_start_index + body_length {
-            // Buffer does not include the full body of the message, Ok(None) since its not neceserally an error, but most likely an incomplete buffer
-            return Ok(None);
-        }
-
-        let body = &buffer[body_start_index..body_end_index];
-        let parsed_message = parse_dap_body(body, &buffer[0..body_end_index])
-            .context("Failed to parse DAP message body")?;
-
-        // Anything in the buffer that did not belong to the parsed message is kept as leftovers (if any)
-        let buffer_leftovers = if body_end_index == buffer.len() {
-            vec![]
-        } else {
-            Vec::from(&buffer[body_start_index + body_length..buffer.len()])
-        };
-
-        return Ok(Some((parsed_message, buffer_leftovers)));
-    }
-
-    Ok(None)
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{
         dap_message::{DapMessage, EventTypes, RequestCommandTypes},
-        dap_stream::parse_dap_message,
+        dap_stream::DapStream,
     };
 
     fn make_dap_message(body: &str) -> Vec<u8> {
         format!("Content-Length: {}\r\n\r\n{}", body.len(), body).into_bytes()
     }
 
-    // parse_dap_message tests
+    // DapStream::parse_message tests
     #[test]
     fn test_parse_complete_request() {
         let buffer = make_dap_message(r#"{"seq":152,"type":"request","command":"initialize"}"#);
-        let parsed = parse_dap_message(&buffer).unwrap();
+        let parsed = DapStream::parse_message(&buffer).unwrap();
 
         match parsed {
             Some((message, leftovers)) => {
@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn test_parse_complete_event() {
         let buffer = make_dap_message(r#"{"seq":1,"type":"event","event":"initialized"}"#);
-        let parsed = parse_dap_message(&buffer).unwrap();
+        let parsed = DapStream::parse_message(&buffer).unwrap();
 
         match parsed {
             Some((message, leftovers)) => {
@@ -199,7 +199,7 @@ mod tests {
     fn test_parse_complete_response() {
         let buffer =
             make_dap_message(r#"{"seq":1,"type":"response","request_seq":15,"success":true}"#);
-        let parsed = parse_dap_message(&buffer).unwrap();
+        let parsed = DapStream::parse_message(&buffer).unwrap();
 
         match parsed {
             Some((message, leftovers)) => {
@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn test_parse_incomplete_body_returns_none() {
         let buffer = b"Content-Length: 999\r\n\r\n{\"seq\":1,\"type\":\"reque";
-        let parsed = parse_dap_message(buffer).unwrap();
+        let parsed = DapStream::parse_message(buffer).unwrap();
 
         assert_eq!(parsed, None);
     }
@@ -228,7 +228,7 @@ mod tests {
     #[test]
     fn test_parse_no_header_returns_none() {
         let buffer = r#"{"seq":1,"type":"request","command":"initialize"}"#.as_bytes();
-        let parsed = parse_dap_message(buffer).unwrap();
+        let parsed = DapStream::parse_message(buffer).unwrap();
 
         assert_eq!(parsed, None);
     }
@@ -236,7 +236,7 @@ mod tests {
     #[test]
     fn test_parse_empty_buffer_returns_none() {
         let buffer = b"";
-        let parsed = parse_dap_message(buffer).unwrap();
+        let parsed = DapStream::parse_message(buffer).unwrap();
 
         assert_eq!(parsed, None);
     }
@@ -249,7 +249,7 @@ mod tests {
 
         // Buffer contains two messages at once, leftovers should include the follow up message
         let buffer = [initial_message.as_slice(), follow_up_message.as_slice()].concat();
-        let parsed = parse_dap_message(&buffer).unwrap();
+        let parsed = DapStream::parse_message(&buffer).unwrap();
 
         match parsed {
             Some((message, leftovers)) => {
@@ -277,7 +277,7 @@ mod tests {
             r#"{"seq":1,"type":"request","command":"setBreakpoints","arguments":{"source":{"path":"/test/path.rs"},"breakpoints":[{"line":10}]}}"#,
         );
 
-        let parsed = parse_dap_message(&buffer).unwrap();
+        let parsed = DapStream::parse_message(&buffer).unwrap();
 
         match parsed {
             Some((message, leftovers)) => {
@@ -306,7 +306,7 @@ mod tests {
     #[test]
     fn test_parse_unknown_command_returns_pass_forward() {
         let buffer = make_dap_message(r#"{"seq":1,"type":"request","command":"continue"}"#);
-        let parsed = parse_dap_message(&buffer).unwrap();
+        let parsed = DapStream::parse_message(&buffer).unwrap();
 
         match parsed {
             Some((message, leftovers)) => {
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn test_parse_invalid_content_length_returns_error() {
         let buffer = b"Content-Length: abc\r\n\r\n{\"seq\":1}";
-        let parsed = parse_dap_message(buffer);
+        let parsed = DapStream::parse_message(buffer);
 
         assert!(parsed.is_err());
     }

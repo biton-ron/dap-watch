@@ -25,6 +25,10 @@ pub struct Cli {
 // Main
 #[derive(Args)]
 pub struct MainArgs {
+    /// Program binary path override (overrides config file)
+    #[arg()]
+    pub program: Option<String>,
+
     /// Port the proxy listens on for IDE connections (overrides config file)
     #[arg(long, short)]
     pub port: Option<u16>,
@@ -36,10 +40,6 @@ pub struct MainArgs {
     /// Build command override (overrides config file)
     #[arg(long)]
     pub build: Option<String>,
-
-    /// Program binary path override (overrides config file)
-    #[arg(long)]
-    pub program: Option<String>,
 
     /// Verbose logging output
     #[arg(long, short)]

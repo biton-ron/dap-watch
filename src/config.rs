@@ -91,7 +91,7 @@ impl MainConfig {
                     "/Users/ronbiton/.vscode/extensions/vadimcn.vscode-lldb-1.12.2/adapter/codelldb",
                 ),
                 adapter_args: vec![],
-                build: String::from("cargo build --bin test_app"),
+                build: String::from("cargo build"),
                 program: String::from("target/debug/test_app"),
                 program_args: vec![],
                 program_env_file: None,
