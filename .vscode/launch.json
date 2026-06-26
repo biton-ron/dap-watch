@@ -2,11 +2,18 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug via dap-watch",
+            "name": "Launch via dap-watch",
             "adapter": "lldb",
             "type": "dap-watch",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/test_app_one",
+        },
+        {
+            "name": "Attach via dap-watch",
+            "type": "lldb",
+            "request": "attach",
+            "program": "${workspaceFolder}/target/debug/test_app_one",
+            "debugServer": 2500,
         }
     ]
 }

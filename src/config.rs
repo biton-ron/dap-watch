@@ -105,7 +105,7 @@ impl MainConfig {
                 adapter_args: vec![],
                 build: String::from("cargo build"),
                 mode: RuntimeModes::Headless {
-                    program: String::from("target/debug/test_app"),
+                    program: String::from("target/debug/test_app_one"),
                     program_args: vec![],
                     program_env_file: None,
                     port: 2500,

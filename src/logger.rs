@@ -15,14 +15,14 @@ impl LogSource {
     /// log! macro expands that by allowing inline formatting of the log message as well.
     pub fn log(&self, message: Arguments) {
         let tag = match self {
-            LogSource::Proxy => "[Proxy]".yellow(),
-            LogSource::Watcher => "[Watcher]".green(),
-            LogSource::Program => "[Program]".cyan(),
-            LogSource::Adapter => "[Adapter -> IDE]".bright_blue(),
-            LogSource::Ide => "[IDE -> Adapter]".bright_magenta(),
+            LogSource::Proxy => "Proxy".yellow(),
+            LogSource::Watcher => "Watcher".green(),
+            LogSource::Program => "Program".cyan(),
+            LogSource::Adapter => "Adapter -> IDE".bright_blue(),
+            LogSource::Ide => "IDE -> Adapter".bright_magenta(),
         };
 
-        eprintln!("{}: {}", tag, message);
+        eprintln!("{:<15} | {}", tag, message);
     }
 }
 

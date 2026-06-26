@@ -86,9 +86,7 @@ impl Proxy {
         std::fs::write("/tmp/dap-watch-debug.log", "proxy-run is starting").unwrap();
 
         loop {
-            self.spawn_adapter()
-                .await
-                .context("Debugger spawning has failed")?;
+            self.start_runtime().await?;
 
             select! {
                 // IDE Lifecycle
@@ -188,31 +186,33 @@ impl Proxy {
     }
 
     // Spawn the debugger, connect
-    async fn spawn_adapter(&mut self) -> Result<()> {
+    async fn start_runtime(&mut self) -> Result<()> {
         if self.runtime_status == RuntimeStatus::Pending {
-            self.runtime
-                .spawn_adapter()
-                .await
-                .context("Failed spawning debug process")?;
-
-            std::fs::write("/tmp/dap-watch-debug.log", "spawned debugger").unwrap();
-
-            log!(LogSource::Proxy, "Debug adapter spawned");
-
-            self.runtime_status = RuntimeStatus::Spawned;
-
-            self.adapter_stream = Some(
+            if self.ide_status == IdeStatus::Connected {
                 self.runtime
-                    .connect()
+                    .spawn_adapter()
                     .await
-                    .context("Unable to connect to the debugger process")?,
-            );
+                    .context("Failed spawning debug process")?;
 
-            log!(LogSource::Proxy, "Proxy is connected to debug adapter");
+                log!(LogSource::Proxy, "Debug adapter spawned");
 
-            self.replay_state()
-                .await
-                .context("Failed to replay messages")?;
+                self.runtime_status = RuntimeStatus::Spawned;
+
+                self.adapter_stream = Some(
+                    self.runtime
+                        .connect()
+                        .await
+                        .context("Unable to connect to the debugger process")?,
+                );
+
+                log!(LogSource::Proxy, "Proxy is connected to debug adapter");
+
+                self.replay_state()
+                    .await
+                    .context("Failed to replay messages")?;
+            } else {
+                self.runtime.spawn_program().await?;
+            }
         }
 
         Ok(())
