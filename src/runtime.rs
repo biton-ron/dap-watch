@@ -14,11 +14,6 @@ use tokio::{
 
 const CONNECTION_LOOP_MAX_ERRORS: u16 = 30;
 
-pub enum RuntimeMode {
-    Direct,
-    Debug,
-}
-
 pub struct Runtime {
     port: Option<u16>,
     process: Option<Child>,
@@ -64,7 +59,8 @@ impl Runtime {
 
             match stream {
                 Ok(stream) => {
-                    let stream = DapStream::new(stream);
+                    let (reader, writer) = stream.into_split();
+                    let stream = DapStream::new(Box::new(reader), Box::new(writer));
                     return Ok(stream);
                 }
                 Err(_) => {

@@ -12,7 +12,7 @@ mod config;
 mod dap_message;
 mod dap_stream;
 mod file_watcher;
-mod ide_server;
+mod ide;
 mod logger;
 mod proxy;
 mod proxy_state;

@@ -1,22 +1,24 @@
 ///! This module is mainly for the DapStream struct, its implementation and all other supporting utlities.
 ///! DapStream is a wrapper around TcpStream that can read and parse buffers as DapMessage structures.
-use anyhow::{Context, Result, bail};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-};
+use anyhow::{Context, Result};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::dap_message::DapMessage;
 
 pub struct DapStream {
-    stream: Option<TcpStream>,
+    reader: Box<dyn AsyncRead + Unpin>,
+    writer: Box<dyn AsyncWrite + Unpin>,
     buffer: Vec<u8>,
 }
 
 impl DapStream {
-    pub fn new(stream: TcpStream) -> DapStream {
+    pub fn new(
+        reader: Box<dyn AsyncRead + Unpin>,
+        writer: Box<dyn AsyncWrite + Unpin>,
+    ) -> DapStream {
         DapStream {
-            stream: Some(stream),
+            reader,
+            writer,
             buffer: Vec::<u8>::new(),
         }
     }
@@ -36,13 +38,9 @@ impl DapStream {
                 }
             }
 
-            let stream = match &mut self.stream {
-                Some(stream) => stream,
-                None => bail!("IDE has not yet established connection"),
-            };
-
             let mut next_buffer: [u8; 1024] = [0; 1024];
-            let next_buffer_length = match stream
+            let next_buffer_length = match self
+                .reader
                 .read(&mut next_buffer)
                 .await
                 .context("Could not read form IDE stream")?
@@ -57,10 +55,7 @@ impl DapStream {
     }
 
     pub async fn write(&mut self, message: &DapMessage) -> Result<()> {
-        let stream = self
-            .stream
-            .as_mut()
-            .context("Stream must have a value for write to work")?;
+        let stream = self.writer.as_mut();
 
         match message {
             DapMessage::Event { raw_bytes, .. }

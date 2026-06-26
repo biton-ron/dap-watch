@@ -4,11 +4,11 @@ use anyhow::{Context, Result, bail};
 use tokio::{select, task::JoinHandle};
 
 use crate::{
-    config::MainConfig,
+    config::{MainConfig, RuntimeModes},
     dap_message::DapMessage::{self},
     dap_stream::DapStream,
     file_watcher::FileWatcher,
-    ide_server::{IdeServer, IdeStatus},
+    ide::{IdeHandler, IdeStatus},
     log,
     logger::LogSource,
     proxy_state::ProxyState,
@@ -36,7 +36,7 @@ pub struct Proxy {
     state: ProxyState,
 
     // IDE
-    ide: IdeServer,
+    ide: IdeHandler,
     ide_stream: Option<DapStream>,
     ide_status: IdeStatus,
 
@@ -53,15 +53,20 @@ pub struct Proxy {
 impl Proxy {
     pub async fn new(config: MainConfig) -> Result<Proxy> {
         let watcher = FileWatcher::new(&config.watcher).context("Failed to launch watcher")?;
-        let ide = IdeServer::new(config.port)
+        let ide = IdeHandler::new(config.runtime.mode.clone())
             .await
             .context("Launching IdeServer has failed")?;
 
-        log!(
-            LogSource::Proxy,
-            "Initiated, proxy is listening on :{}",
-            config.port
-        );
+        match config.runtime.mode {
+            RuntimeModes::Headless { port, .. } => {
+                log!(
+                    LogSource::Proxy,
+                    "Initiated, proxy is listening on :{}",
+                    port
+                );
+            }
+            RuntimeModes::Stdio => {}
+        }
 
         Ok(Proxy {
             state: ProxyState::default(),

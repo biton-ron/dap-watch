@@ -18,9 +18,27 @@ pub struct WatcherConfig {
     pub debounce_ms: u64,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+pub enum RuntimeModes {
+    /// Headless means dap-watch is starting the program itself, no need for a debugger to be attached.
+    /// A debugger can later than connect to the provided port using an "attach" request.
+    Headless {
+        /// Path to the compiled program binary
+        program: String,
+        /// Arguments passed to the program when launched
+        program_args: Vec<String>,
+        /// Path to an environment file loaded before running the program
+        program_env_file: Option<String>,
+        /// Port the proxy listens on for IDE connections
+        port: u16,
+    },
+    /// Stdio means that dap-watch was started as a child-process by the IDE, and communciation between them is done through stdin/stdout rather than TCP.
+    /// This mode should be used together with "launch" debug request along with the program related configuration (which program to run? etc)
+    Stdio,
+}
+
 /// Runtime configuration for the build, program, and debug adapter
-#[derive(Clone, Deserialize, Serialize, Default)]
-#[serde(default)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct RuntimeConfig {
     /// Path to the debug adapter binary (e.g., "/path/to/codelldb")
     pub adapter: String,
@@ -28,19 +46,12 @@ pub struct RuntimeConfig {
     pub adapter_args: Vec<String>,
     /// Shell command to build the program (e.g., "cargo build")
     pub build: String,
-    /// Path to the compiled program binary
-    pub program: String,
-    /// Arguments passed to the program when launched
-    pub program_args: Vec<String>,
-    /// Path to an environment file loaded before running the program
-    pub program_env_file: Option<String>,
+    pub mode: RuntimeModes,
 }
 
 /// Min configuration for dap-watch
 #[derive(Deserialize, Serialize)]
 pub struct MainConfig {
-    /// Port the proxy listens on for IDE connections
-    pub port: u16,
     pub runtime: RuntimeConfig,
     pub watcher: WatcherConfig,
 }
@@ -85,16 +96,18 @@ impl MainConfig {
     /// TODO: Auto detect defaults by folder structure
     fn detect_defaults() -> MainConfig {
         MainConfig {
-            port: 2500,
             runtime: RuntimeConfig {
                 adapter: String::from(
                     "/Users/ronbiton/.vscode/extensions/vadimcn.vscode-lldb-1.12.2/adapter/codelldb",
                 ),
                 adapter_args: vec![],
                 build: String::from("cargo build"),
-                program: String::from("target/debug/test_app"),
-                program_args: vec![],
-                program_env_file: None,
+                mode: RuntimeModes::Headless {
+                    program: String::from("target/debug/test_app"),
+                    program_args: vec![],
+                    program_env_file: None,
+                    port: 2500,
+                },
             },
             watcher: WatcherConfig {
                 paths: vec![String::from("./src/**.rs")],

@@ -44,6 +44,14 @@ pub struct MainArgs {
     /// Verbose logging output
     #[arg(long, short)]
     pub verbose: bool,
+
+    /// --stdio is specifically for launch mode, it allows IDEs to spawn dap-watch as child-process and communicate through stdin/out
+    #[arg(long, conflicts_with_all = ["program", "port"])]
+    pub stdio: bool,
+
+    /// Remaining args are passed through to adapter
+    #[arg(trailing_var_arg = true, hide = true)]
+    pub adapter_args: Vec<String>,
 }
 
 // Init
