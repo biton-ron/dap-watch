@@ -12,10 +12,70 @@
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
-    "commands": [
+    "debuggers": [
       {
-        "command": "dap-watch.helloWorld",
-        "title": "Hello World"
+        "type": "dap-watch",
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "adapter"
+            ],
+            "properties": {
+              "adapter": {
+                "type": "string",
+                "description": "The debug adapter type to proxy (e.g. codelldb, delve)"
+              },
+              "port": {
+                "type": "number",
+                "description": "Port dap-watch is listening on",
+                "default": 6969
+              },
+              "program": {
+                "type": "string",
+                "description": "Path to the program to debug"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Program arguments"
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory"
+              },
+              "env": {
+                "type": "object",
+                "description": "Environment variables"
+              },
+              "adapterConfig": {
+                "type": "object",
+                "description": "Additional adapter-specific configuration"
+              }
+            }
+          },
+          "attach": {
+            "required": [
+              "adapter"
+            ],
+            "properties": {
+              "adapter": {
+                "type": "string",
+                "description": "The debug adapter type to proxy (e.g. codelldb, delve)"
+              },
+              "port": {
+                "type": "number",
+                "description": "Port dap-watch is listening on",
+                "default": 6969
+              },
+              "adapterConfig": {
+                "type": "object",
+                "description": "Additional adapter-specific configuration"
+              }
+            }
+          }
+        }
       }
     ]
   },
