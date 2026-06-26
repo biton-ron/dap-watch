@@ -1,5 +1,6 @@
 {
   "name": "dap-watch",
+  "publisher": "dap-watch",
   "displayName": "dap-watch",
   "description": "Hot-reload debugging — automatically rebuilds and restarts your debug session on file changes",
   "version": "0.0.1",
@@ -9,12 +10,15 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onDebugResolve:dap-watch"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "debuggers": [
       {
         "type": "dap-watch",
+        "label": "dap-watch",
         "configurationAttributes": {
           "launch": {
             "required": [

@@ -61,7 +61,8 @@ impl DapStream {
             DapMessage::Event { raw_bytes, .. }
             | DapMessage::Response { raw_bytes, .. }
             | DapMessage::Request { raw_bytes, .. } => {
-                stream.write(&raw_bytes).await?;
+                stream.write_all(&raw_bytes).await?;
+                stream.flush().await?;
             }
         }
 

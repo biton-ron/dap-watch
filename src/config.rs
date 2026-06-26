@@ -26,6 +26,7 @@ pub enum RuntimeModes {
         /// Path to the compiled program binary
         program: String,
         /// Arguments passed to the program when launched
+        #[serde(default)]
         program_args: Vec<String>,
         /// Path to an environment file loaded before running the program
         program_env_file: Option<String>,
@@ -43,6 +44,7 @@ pub struct RuntimeConfig {
     /// Path to the debug adapter binary (e.g., "/path/to/codelldb")
     pub adapter: String,
     /// Additional arguments passed to the debug adapter, appended after the port flag managed by dap-watch
+    #[serde(default)]
     pub adapter_args: Vec<String>,
     /// Shell command to build the program (e.g., "cargo build")
     pub build: String,
@@ -98,16 +100,17 @@ impl MainConfig {
         MainConfig {
             runtime: RuntimeConfig {
                 adapter: String::from(
-                    "/Users/ronbiton/.vscode/extensions/vadimcn.vscode-lldb-1.12.2/adapter/codelldb",
+                    "/Users/ronbiton/.vscode/extensions/vadimcn.vscode-lldb-1.12.2/adapter/codelldb.real",
                 ),
                 adapter_args: vec![],
                 build: String::from("cargo build"),
-                mode: RuntimeModes::Headless {
-                    program: String::from("target/debug/test_app"),
-                    program_args: vec![],
-                    program_env_file: None,
-                    port: 2500,
-                },
+                // mode: RuntimeModes::Headless {
+                //     program: String::from("target/debug/test_app"),
+                //     program_args: vec![],
+                //     program_env_file: None,
+                //     port: 2500,
+                // },
+                mode: RuntimeModes::Stdio,
             },
             watcher: WatcherConfig {
                 paths: vec![String::from("./src/**.rs")],

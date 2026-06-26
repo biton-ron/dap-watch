@@ -5,7 +5,7 @@ use crate::dap_message::{
     RequestCommandTypes,
 };
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct ProxyState {
     // Command specific state
     initialize: Option<DapMessage>,

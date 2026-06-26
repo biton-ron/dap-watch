@@ -21,7 +21,7 @@ enum StreamSources {
     Adapter,
 }
 
-#[derive(Default, PartialEq)]
+#[derive(Default, PartialEq, Debug)]
 pub enum RuntimeStatus {
     #[default]
     Building,
@@ -83,6 +83,8 @@ impl Proxy {
     }
 
     pub async fn run(&mut self) -> Result<()> {
+        std::fs::write("/tmp/dap-watch-debug.log", "proxy-run is starting").unwrap();
+
         loop {
             self.spawn_adapter()
                 .await
@@ -97,11 +99,23 @@ impl Proxy {
                 },
 
                 message = DapStream::read_stream(&mut self.ide_stream), if self.runtime_status == RuntimeStatus::Live => {
+                    if matches!(message, Ok(None)) {
+                        std::fs::write("/tmp/dap-watch-debug.log", "empty message").unwrap();
+                        return self.graceful_shutdown().await;
+                    }
+
+                    std::fs::write("/tmp/dap-watch-debug.log", "read message").unwrap();
+
                     self.handle_streaming(StreamSources::Ide, message).await?
                 },
 
                 // Adapter Lifecycle
-                message = DapStream::read_stream(&mut self.adapter_stream) => self.handle_streaming(StreamSources::Adapter, message).await?,
+                message = DapStream::read_stream(&mut self.adapter_stream) => {
+
+                    std::fs::write("/tmp/dap-watch-debug.log", "message from adapter nice").unwrap();
+
+                    self.handle_streaming(StreamSources::Adapter, message).await?;
+                },
 
                 // File Watching
                 _ = self.watcher.next() => {
@@ -181,6 +195,8 @@ impl Proxy {
                 .await
                 .context("Failed spawning debug process")?;
 
+            std::fs::write("/tmp/dap-watch-debug.log", "spawned debugger").unwrap();
+
             log!(LogSource::Proxy, "Debug adapter spawned");
 
             self.runtime_status = RuntimeStatus::Spawned;
@@ -248,5 +264,11 @@ impl Proxy {
             Some(handler) => handler.await?,
             None => std::future::pending().await,
         }
+    }
+
+    async fn graceful_shutdown(&mut self) -> Result<()> {
+        self.runtime.kill().await?;
+
+        Ok(())
     }
 }

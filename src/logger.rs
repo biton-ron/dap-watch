@@ -22,7 +22,7 @@ impl LogSource {
             LogSource::Ide => "[IDE -> Adapter]".bright_magenta(),
         };
 
-        println!("{}: {}", tag, message);
+        eprintln!("{}: {}", tag, message);
     }
 }
 

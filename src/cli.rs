@@ -12,7 +12,9 @@ pub enum Commands {
 #[command(
     name = "dap-watch",
     version,
-    about = "DAP proxy with file watching and auto-rebuild for compiled languages"
+    about = "DAP proxy with file watching and auto-rebuild for compiled languages",
+    trailing_var_arg = true,
+    allow_hyphen_values = true
 )]
 pub struct Cli {
     #[command(flatten)]
@@ -23,7 +25,7 @@ pub struct Cli {
 }
 
 // Main
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub struct MainArgs {
     /// Program binary path override (overrides config file)
     #[arg()]

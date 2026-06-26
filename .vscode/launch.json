@@ -3,10 +3,10 @@
     "configurations": [
         {
             "name": "Debug via dap-watch",
-            "type": "lldb",
+            "adapter": "lldb",
+            "type": "dap-watch",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/test_app_one",
-            "console": "internalConsole",
         }
     ]
 }
