@@ -104,13 +104,13 @@ impl MainConfig {
                 ),
                 adapter_args: vec![],
                 build: String::from("cargo build"),
-                // mode: RuntimeModes::Headless {
-                //     program: String::from("target/debug/test_app"),
-                //     program_args: vec![],
-                //     program_env_file: None,
-                //     port: 2500,
-                // },
-                mode: RuntimeModes::Stdio,
+                mode: RuntimeModes::Headless {
+                    program: String::from("target/debug/test_app"),
+                    program_args: vec![],
+                    program_env_file: None,
+                    port: 2500,
+                },
+                // mode: RuntimeModes::Stdio,
             },
             watcher: WatcherConfig {
                 paths: vec![String::from("./src/**.rs")],

@@ -191,7 +191,7 @@ impl Proxy {
     async fn spawn_adapter(&mut self) -> Result<()> {
         if self.runtime_status == RuntimeStatus::Pending {
             self.runtime
-                .spawn()
+                .spawn_adapter()
                 .await
                 .context("Failed spawning debug process")?;
 
@@ -244,7 +244,7 @@ impl Proxy {
 
     async fn rebuild(&mut self) -> Result<()> {
         self.runtime
-            .kill()
+            .kill_adapter()
             .await
             .context("Failed to kill debug adapter")?;
 
@@ -267,7 +267,7 @@ impl Proxy {
     }
 
     async fn graceful_shutdown(&mut self) -> Result<()> {
-        self.runtime.kill().await?;
+        self.runtime.kill_adapter().await?;
 
         Ok(())
     }

@@ -1,4 +1,9 @@
-use crate::{config::RuntimeConfig, dap_stream::DapStream};
+use crate::{
+    config::{RuntimeConfig, RuntimeModes},
+    dap_stream::DapStream,
+    log,
+    logger::LogSource,
+};
 
 use anyhow::{Context, Result, bail};
 use std::{
@@ -6,6 +11,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
+    io::{AsyncBufReadExt, AsyncRead, BufReader},
     net::{TcpListener, TcpStream},
     process::{Child, Command},
     task::JoinHandle,
@@ -15,21 +21,33 @@ use tokio::{
 const CONNECTION_LOOP_MAX_ERRORS: u16 = 30;
 
 pub struct Runtime {
-    port: Option<u16>,
-    process: Option<Child>,
+    /// The user's application process. Only populated when dap-watch owns the
+    /// process directly (headless, not debugging). When the adapter owns the
+    /// process (rebuild during debug), this is None.
+    program: Option<Child>,
+
+    /// The debug adapter process (e.g. codelldb, delve). Spawned when
+    /// the IDE connects, killed when IDE disconnects or on rebuild.
+    adapter: Option<Child>,
+
+    /// Port the adapter is listening on for DAP connections, this port is managed
+    /// by dap-watch (picked automatically by the OS) and is not configurable.
+    adapter_port: Option<u16>,
+
     config: RuntimeConfig,
 }
 
 impl Runtime {
     pub fn new(config: &RuntimeConfig) -> Runtime {
         Runtime {
-            port: None,
-            process: None,
+            program: None,
+            adapter_port: None,
+            adapter: None,
             config: config.clone(),
         }
     }
 
-    pub async fn spawn(&mut self) -> Result<()> {
+    pub async fn spawn_adapter(&mut self) -> Result<()> {
         let port = port_selection()
             .await
             .context("Port selection for debugger has failed")?;
@@ -44,14 +62,71 @@ impl Runtime {
             .spawn()
             .context("Unable to spawn debugger as a child process")?;
 
-        self.process = Some(child);
-        self.port = Some(port);
+        self.adapter = Some(child);
+        self.adapter_port = Some(port);
 
         Ok(())
     }
 
+    pub async fn kill_adapter(&mut self) -> Result<()> {
+        if let Some(adapter) = &mut self.adapter {
+            adapter.kill().await?;
+            self.adapter = None;
+        }
+
+        Ok(())
+    }
+
+    pub async fn spawn_program(&mut self) -> Result<()> {
+        if let RuntimeModes::Headless {
+            program,
+            program_args,
+            ..
+        } = &self.config.mode
+        {
+            let mut child = Command::new(&program)
+                .arg("--port")
+                .args(program_args)
+                // TODO: we need to add environment variables support here
+                .kill_on_drop(true)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .context("Unable to spawn program")?;
+
+            Self::pipe_program_logs(child.stdout.take().unwrap());
+            Self::pipe_program_logs(child.stderr.take().unwrap());
+
+            self.program = Some(child);
+        }
+
+        Ok(())
+    }
+
+    pub async fn kill_program(&mut self) -> Result<()> {
+        if let Some(program) = &mut self.program {
+            program.kill().await?;
+            self.program = None;
+        }
+
+        Ok(())
+    }
+
+    fn pipe_program_logs(source: impl AsyncRead + Unpin + Send + 'static) {
+        tokio::spawn(async {
+            let reader = BufReader::new(source);
+            let mut lines = reader.lines();
+
+            while let Ok(Some(line)) = lines.next_line().await {
+                log!(LogSource::Program, "{}", line);
+            }
+        });
+    }
+
     pub async fn connect(&mut self) -> Result<DapStream> {
-        let port = self.port.context("Could not find a port to connect to")?;
+        let port = self
+            .adapter_port
+            .context("Could not find a port to connect to")?;
         let mut errors_count = 0;
 
         loop {
@@ -74,15 +149,6 @@ impl Runtime {
                 }
             }
         }
-    }
-
-    pub async fn kill(&mut self) -> Result<()> {
-        if let Some(process) = &mut self.process {
-            process.kill().await?;
-            self.process = None;
-        }
-
-        Ok(())
     }
 
     pub fn build(&self) -> JoinHandle<Result<ExitStatus>> {
