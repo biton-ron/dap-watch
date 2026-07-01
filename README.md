@@ -1,29 +1,36 @@
-# Dap-Watch
+## dap-watch — Task List
 
-## Left To Do
+### Runtime
 
-### [DapStream]
+- [ ] Program output channel (mpsc from Runtime to Proxy)
+- [ ] Operational logs to debug console (DAP output events)
+- [ ] Rebuild during attach/debug mode
+- [ ] Graceful shutdown (Ctrl+C)
 
-[X] Complete DapStream buffer parsing  
-[X] Complete DapMessage parser  
-[X] Complete DapStream read loop to result in DapMessages  
-[ ] Write logic
+### Watcher
 
-### [DapAdapter]
+- [ ] Glob pattern filtering and gitignore support
+- [ ] File watcher debouncing
 
-[ ] Trait - Spawn  
-[ ] Trait - Kill  
-[ ] Trait - Replay  
-[ ] Adapter for Rust  
-[ ] Adapter for Go
+### Config
 
-### [MainLoop]
+- [ ] Auto-detection of adapter binary paths
+- [ ] Init command with auto-detection
+- [ ] Config validation on startup
 
-[ ] Establish initial bi-directional pass forward  
-[ ] Store state for state-related requests  
-[ ] Replay stored state when re-spawning a debug adapter
+### Testing
 
-### [FileWatcher]
+- [ ] Expand unit test coverage
+- [ ] Integration tests (end-to-end DAP sessions)
 
-[ ] Configuration should include files to include, exclude, and gitignore support  
-[ ] Should notify the main loop when file updates were made
+### Extension & CI/CD
+
+- [ ] VS Code extension — polish and binary resolution
+- [ ] GitHub Actions CI/CD pipeline
+
+### Documentation
+
+- [ ] README and getting started guide
+- [ ] Config reference documentation
+- [ ] Editor setup guides (VS Code, Neovim)
+- [ ] Example configs per language (Rust, Go)
