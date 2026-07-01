@@ -57,17 +57,6 @@ impl Proxy {
             .await
             .context("Launching IdeServer has failed")?;
 
-        match config.runtime.mode {
-            RuntimeModes::Headless { port, .. } => {
-                log!(
-                    LogSource::Proxy,
-                    "Initiated, proxy is listening on :{}",
-                    port
-                );
-            }
-            RuntimeModes::Launch => {}
-        }
-
         Ok(Proxy {
             state: ProxyState::default(),
             ide,
@@ -84,6 +73,11 @@ impl Proxy {
 
     /// Main proxy loop, orchestrates IDE <-> Adapter communication, FileWatcher events handling, and Runtime spawning & rebuilds.
     pub async fn run(&mut self) -> Result<()> {
+        if let RuntimeModes::Headless { port, .. } = self.config.runtime.mode {
+            log!(LogSource::Proxy, "Proxy is listening on :{}", port);
+            self.capture_headless_launch_state();
+        }
+
         loop {
             self.start_runtime().await?;
 
@@ -124,6 +118,15 @@ impl Proxy {
                 }
             }
         }
+    }
+
+    /// On headless mode, there are 3 different possibilities for the runtime to operate:
+    /// 1. No debugging - program is started as a child process, no debug adapter is spawned at this point.
+    /// 2. First debugging - when program is already spawned, attaching to dap-watch means spawning a debug adapter - and forwarding the attach request to it.
+    /// 3. Rebuild while debugging - in this case, we want the adapter itself to launch the program, so no code execution will be missed, in order to do that
+    ///    we "inject" a DapMessage to ProxyState, so it would be replayed to those freshly spawned adapters after rebuild.
+    async fn capture_headless_launch_state(&mut self) {
+        // self.state.capture() // TODO: construct a launch message using something like DapMessage::launch
     }
 
     /// Intercept messages from both streaming sources and deal with forwarding and state management
@@ -193,6 +196,7 @@ impl Proxy {
     /// Spawn the debugger, connect
     async fn start_runtime(&mut self) -> Result<()> {
         if self.runtime_status == RuntimeStatus::Pending {
+            // TODO: Pending OR debugging but no debugger is live
             if self.ide_status == IdeStatus::Connected {
                 self.runtime
                     .spawn_adapter()
@@ -216,6 +220,7 @@ impl Proxy {
                     .await
                     .context("Failed to replay messages")?;
             } else {
+                // TODO: This should only happen once
                 self.runtime.spawn_program().await?;
             }
         }
@@ -223,6 +228,9 @@ impl Proxy {
         Ok(())
     }
 
+    /// Replaying the last stored state the a newly spawned adatper, this is called right after launching a fresh adapter.
+    /// ProxyState prepares a sequence of DapMessage requests that needs to be sent to the adapter in order to match the
+    /// state in the previous run, this includes: file breakpoints, function breakpoints and launch configuration.
     async fn replay_state(&mut self) -> Result<()> {
         if let Some(stream) = &mut self.adapter_stream {
             log!(LogSource::Proxy, "Init state replay to the new debugger");
@@ -247,12 +255,14 @@ impl Proxy {
         Ok(())
     }
 
+    /// Rebuild is in charge of killing the adapter or/and the program's child process (depends on headless/launch mode)
+    /// and to trigger a rebuild for the program. The handler for the rebuild process is kept and is then awaited on the
+    /// main proxy loop until completed.
     async fn rebuild(&mut self) -> Result<()> {
         self.runtime.kill().await?;
 
         self.adapter_stream = None;
         self.runtime_status = RuntimeStatus::Building;
-
         self.build_handle = Some(self.runtime.build());
 
         Ok(())
