@@ -23,8 +23,9 @@ enum StreamSources {
 #[derive(Default, PartialEq, Debug)]
 pub enum RuntimeStatus {
     #[default]
-    Building,
     Pending,
+    Building,
+    BuildingFailed,
     Spawned,
     Replaying,
     Live,
@@ -112,8 +113,11 @@ impl Proxy {
                 // Wait for building to complete
                 result = Proxy::await_build(&mut self.build_handle), if self.runtime_status == RuntimeStatus::Building => {
                     match result {
-                        Ok(_status) => {
-                            self.runtime_status = RuntimeStatus::Pending;
+                        Ok(status) => {
+                            self.runtime_status = match status.success() {
+                                true => RuntimeStatus::Pending, // Success - next loop iteration will spawn a new process.
+                                false => RuntimeStatus::BuildingFailed // Build failed, another attempt on the next file change.
+                            };
                         },
                         Err(_) => {}
                     }
@@ -244,10 +248,7 @@ impl Proxy {
     }
 
     async fn rebuild(&mut self) -> Result<()> {
-        self.runtime
-            .kill_adapter()
-            .await
-            .context("Failed to kill debug adapter")?;
+        self.runtime.kill().await?;
 
         self.adapter_stream = None;
         self.runtime_status = RuntimeStatus::Building;
@@ -268,7 +269,7 @@ impl Proxy {
     }
 
     async fn graceful_shutdown(&mut self) -> Result<()> {
-        self.runtime.kill_adapter().await?;
+        self.runtime.kill().await?;
 
         Ok(())
     }

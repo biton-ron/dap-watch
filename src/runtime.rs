@@ -68,7 +68,7 @@ impl Runtime {
         Ok(())
     }
 
-    pub async fn kill_adapter(&mut self) -> Result<()> {
+    async fn kill_adapter(&mut self) -> Result<()> {
         if let Some(adapter) = &mut self.adapter {
             adapter.kill().await?;
             self.adapter = None;
@@ -103,9 +103,18 @@ impl Runtime {
         Ok(())
     }
 
-    pub async fn kill_program(&mut self) -> Result<()> {
+    async fn kill_program(&mut self) -> Result<()> {
         if let Some(program) = &mut self.program {
-            program.kill().await?;
+            // Process may have already been killed by the adapter — only kill if still running.
+            match program.try_wait() {
+                Ok(None) => program
+                    .kill()
+                    .await
+                    .context("Could not kill program's child process")?,
+                Ok(Some(_)) => {}
+                Err(_) => {}
+            }
+
             self.program = None;
         }
 
@@ -121,6 +130,16 @@ impl Runtime {
                 log!(LogSource::Program, "{}", line);
             }
         });
+    }
+
+    pub async fn kill(&mut self) -> Result<()> {
+        self.kill_adapter()
+            .await
+            .context("Failed to kill debug adapter")?;
+
+        self.kill_program().await.context("Can't kill program")?;
+
+        Ok(())
     }
 
     pub async fn connect(&mut self) -> Result<DapStream> {
