@@ -10,7 +10,6 @@ pub struct ProxyState {
     // Command specific state
     initialize: Option<DapMessage>,
     launch: Option<DapMessage>,
-    attach: Option<DapMessage>,
     configuration_done: Option<DapMessage>,
     function_breakpoints: Option<DapMessage>,
     exception_breakpoints: Option<DapMessage>,
@@ -29,7 +28,6 @@ impl ProxyState {
             let message = message.clone();
 
             match command {
-                RequestCommandTypes::Attach => self.attach = Some(message),
                 RequestCommandTypes::Initialize => self.initialize = Some(message),
                 RequestCommandTypes::Launch => self.launch = Some(message),
                 RequestCommandTypes::ConfigurationDone => self.configuration_done = Some(message),
@@ -58,7 +56,6 @@ impl ProxyState {
         let mut replay_sequence = vec![
             self.initialize.as_ref(),
             self.launch.as_ref(),
-            self.attach.as_ref(),
             self.exception_breakpoints.as_ref(),
             self.function_breakpoints.as_ref(),
         ];
@@ -117,7 +114,6 @@ mod test {
         let mut state = ProxyState::default();
 
         let initialize = make_request(1, RequestCommandTypes::Initialize);
-        let attach = make_request(2, RequestCommandTypes::Attach);
         let launch = make_request(3, RequestCommandTypes::Launch);
         let exception_breakpoints = make_request(4, RequestCommandTypes::SetExceptionBreakpoints);
         let function_breakpoints = make_request(5, RequestCommandTypes::SetFunctionBreakpoints);
@@ -128,7 +124,6 @@ mod test {
         let configuration_done = make_request(7, RequestCommandTypes::ConfigurationDone);
 
         state.capture(&initialize);
-        state.capture(&attach);
         state.capture(&launch);
         state.capture(&exception_breakpoints);
         state.capture(&function_breakpoints);
@@ -136,7 +131,6 @@ mod test {
         state.capture(&configuration_done);
 
         assert_eq!(state.initialize, Some(initialize));
-        assert_eq!(state.attach, Some(attach));
         assert_eq!(state.launch, Some(launch));
         assert_eq!(state.configuration_done, Some(configuration_done));
         assert_eq!(state.exception_breakpoints, Some(exception_breakpoints));
@@ -254,22 +248,20 @@ mod test {
         let mut state = ProxyState::default();
 
         let initialize = make_request(1, RequestCommandTypes::Initialize);
-        let attach = make_request(2, RequestCommandTypes::Attach);
-        let launch = make_request(3, RequestCommandTypes::Launch);
-        let exception_breakpoints = make_request(4, RequestCommandTypes::SetExceptionBreakpoints);
-        let function_breakpoints = make_request(5, RequestCommandTypes::SetFunctionBreakpoints);
+        let launch = make_request(2, RequestCommandTypes::Launch);
+        let exception_breakpoints = make_request(3, RequestCommandTypes::SetExceptionBreakpoints);
+        let function_breakpoints = make_request(4, RequestCommandTypes::SetFunctionBreakpoints);
         let breakpoints_a = make_request(
-            6,
+            5,
             RequestCommandTypes::SetBreakpoints(String::from("testfile_a.rs")),
         );
-        let configuration_done = make_request(7, RequestCommandTypes::ConfigurationDone);
+        let configuration_done = make_request(6, RequestCommandTypes::ConfigurationDone);
         let breakpoints_b = make_request(
-            8,
+            7,
             RequestCommandTypes::SetBreakpoints(String::from("testfile_b.rs")),
         );
 
         state.capture(&initialize);
-        state.capture(&attach);
         state.capture(&launch);
         state.capture(&exception_breakpoints);
         state.capture(&function_breakpoints);
@@ -279,16 +271,15 @@ mod test {
 
         let sequence = state.get_replay_sequence();
 
-        assert_eq!(sequence.len(), 8);
+        assert_eq!(sequence.len(), 7);
 
         // Sequence always starts with initation related messages
-        let start = &sequence[0..=2];
+        let start = &sequence[0..=1];
         assert_eq!(start[0], &initialize);
-        assert!(start.contains(&&launch)); // In real usage, state should never have both launch and attach at the same time, this is why order does not matter here.
-        assert!(start.contains(&&attach));
+        assert_eq!(start[1], &launch); // In real usage, state should never have both launch and attach at the same time, this is why order does not matter here.
 
         // Mid-section always have breakpoints (order of breakpoints is not important)
-        let middle = &sequence[3..=6];
+        let middle = &sequence[2..=5];
         assert!(middle.contains(&&exception_breakpoints));
         assert!(middle.contains(&&function_breakpoints));
         assert!(middle.contains(&&breakpoints_a));
@@ -305,11 +296,9 @@ mod test {
         let mut state = ProxyState::default();
 
         let initialize = make_request(1, RequestCommandTypes::Initialize);
-        let attach = make_request(2, RequestCommandTypes::Attach);
         let configuration_done = make_request(3, RequestCommandTypes::ConfigurationDone);
 
         state.capture(&initialize);
-        state.capture(&attach);
         state.capture(&configuration_done);
 
         _ = state.get_replay_sequence();
@@ -349,11 +338,9 @@ mod test {
         let mut state = ProxyState::default();
 
         let initialize = make_request(1, RequestCommandTypes::Initialize);
-        let attach = make_request(2, RequestCommandTypes::Attach);
         let configuration_done = make_request(3, RequestCommandTypes::ConfigurationDone);
 
         state.capture(&initialize);
-        state.capture(&attach);
         state.capture(&configuration_done);
 
         let response = DapMessage::Response {

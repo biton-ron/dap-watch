@@ -6,7 +6,6 @@ use anyhow::{Context, Result, bail};
 #[derive(Debug, PartialEq, Clone)]
 pub enum RequestCommandTypes {
     Initialize,
-    Attach,
     Launch,
     ConfigurationDone,
     SetBreakpoints(String), // String is the file_path
@@ -136,7 +135,6 @@ impl DapMessage {
                     "setExceptionBreakpoints" => RequestCommandTypes::SetExceptionBreakpoints,
                     "setFunctionBreakpoints" => RequestCommandTypes::SetFunctionBreakpoints,
                     "initialize" => RequestCommandTypes::Initialize,
-                    "attach" => RequestCommandTypes::Attach,
                     "launch" => RequestCommandTypes::Launch,
                     "configurationDone" => RequestCommandTypes::ConfigurationDone,
                     _ => RequestCommandTypes::PassForward(String::from(command_type_str)),
