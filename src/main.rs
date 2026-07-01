@@ -22,15 +22,10 @@ mod runtime;
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    std::fs::write("/tmp/dap-watch-debug.log", "started").unwrap();
-
     match cli.command {
         Some(Commands::Init(_)) => MainConfig::init(),
         None => {
             let config = MainConfig::build(cli.main)?;
-
-            std::fs::write("/tmp/dap-watch-debug.log", "config is good").unwrap();
-
             let mut proxy = Proxy::new(config).await?;
 
             proxy.run().await?;

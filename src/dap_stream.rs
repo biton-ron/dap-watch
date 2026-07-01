@@ -11,6 +11,11 @@ pub struct DapStream {
     buffer: Vec<u8>,
 }
 
+pub enum ReadResult {
+    Message(DapMessage),
+    EOF, // End-of-file
+}
+
 impl DapStream {
     pub fn new(
         reader: Box<dyn AsyncRead + Unpin>,
@@ -23,7 +28,7 @@ impl DapStream {
         }
     }
 
-    pub async fn read(&mut self) -> Result<Option<DapMessage>> {
+    pub async fn read(&mut self) -> Result<ReadResult> {
         loop {
             let parsed = DapStream::parse_message(&self.buffer);
 
@@ -31,7 +36,7 @@ impl DapStream {
                 Ok(None) => {}
                 Ok(Some((message, leftovers))) => {
                     self.buffer = leftovers;
-                    return Ok(Some(message));
+                    return Ok(ReadResult::Message(message));
                 }
                 Err(e) => {
                     return Err(e);
@@ -45,7 +50,7 @@ impl DapStream {
                 .await
                 .context("Could not read form IDE stream")?
             {
-                0 => return Ok(None),
+                0 => return Ok(ReadResult::EOF),
                 n => n,
             };
 
@@ -71,7 +76,7 @@ impl DapStream {
 
     /// Helper that wraps an optional DapStream as a Future.
     /// This makes it easier to use DapStram.read on select! loop while DapStream is optionally None (Future will not resolve if thats the case).
-    pub async fn read_stream(stream: &mut Option<DapStream>) -> Result<Option<DapMessage>> {
+    pub async fn read_stream(stream: &mut Option<DapStream>) -> Result<ReadResult> {
         match stream {
             Some(stream) => stream.read().await,
             None => std::future::pending().await,

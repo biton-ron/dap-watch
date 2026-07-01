@@ -33,9 +33,9 @@ pub enum RuntimeModes {
         /// Port the proxy listens on for IDE connections
         port: u16,
     },
-    /// Stdio means that dap-watch was started as a child-process by the IDE, and communciation between them is done through stdin/stdout rather than TCP.
-    /// This mode should be used together with "launch" debug request along with the program related configuration (which program to run? etc)
-    Stdio,
+    /// Launch means that dap-watch was started as a child-process by the IDE, and communciation between them is done through stdin/stdout rather than TCP.
+    /// This mode should be used together with "launch" debug request along with the program related configuration (which program to run? etc).
+    Launch,
 }
 
 /// Runtime configuration for the build, program, and debug adapter

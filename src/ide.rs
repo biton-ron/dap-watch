@@ -26,7 +26,7 @@ impl IdeHandler {
                 let listener = TcpListener::bind(("127.0.0.1", port)).await?;
                 Ok(Self::Tcp { listener })
             }
-            RuntimeModes::Stdio => Ok(Self::Stdio),
+            RuntimeModes::Launch => Ok(Self::Stdio),
         }
     }
 

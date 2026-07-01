@@ -2,9 +2,9 @@
 
 ### Runtime
 
+- [ ] Rebuild during attach/debug mode
 - [ ] Program output channel (mpsc from Runtime to Proxy)
 - [ ] Operational logs to debug console (DAP output events)
-- [ ] Rebuild during attach/debug mode
 - [ ] Graceful shutdown (Ctrl+C)
 
 ### Watcher
@@ -14,7 +14,7 @@
 
 ### Config
 
-- [ ] Auto-detection of adapter binary paths
+- [ ] Auto-detection of adapter binary path
 - [ ] Init command with auto-detection
 - [ ] Config validation on startup
 

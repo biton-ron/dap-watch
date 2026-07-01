@@ -5,8 +5,7 @@ use tokio::{select, task::JoinHandle};
 
 use crate::{
     config::{MainConfig, RuntimeModes},
-    dap_message::DapMessage::{self},
-    dap_stream::DapStream,
+    dap_stream::{DapStream, ReadResult},
     file_watcher::FileWatcher,
     ide::{IdeHandler, IdeStatus},
     log,
@@ -65,7 +64,7 @@ impl Proxy {
                     port
                 );
             }
-            RuntimeModes::Stdio => {}
+            RuntimeModes::Launch => {}
         }
 
         Ok(Proxy {
@@ -82,9 +81,8 @@ impl Proxy {
         })
     }
 
+    /// Main proxy loop, orchestrates IDE <-> Adapter communication, FileWatcher events handling, and Runtime spawning & rebuilds.
     pub async fn run(&mut self) -> Result<()> {
-        std::fs::write("/tmp/dap-watch-debug.log", "proxy-run is starting").unwrap();
-
         loop {
             self.start_runtime().await?;
 
@@ -97,21 +95,11 @@ impl Proxy {
                 },
 
                 message = DapStream::read_stream(&mut self.ide_stream), if self.runtime_status == RuntimeStatus::Live => {
-                    if matches!(message, Ok(None)) {
-                        std::fs::write("/tmp/dap-watch-debug.log", "empty message").unwrap();
-                        return self.graceful_shutdown().await;
-                    }
-
-                    std::fs::write("/tmp/dap-watch-debug.log", "read message").unwrap();
-
                     self.handle_streaming(StreamSources::Ide, message).await?
                 },
 
                 // Adapter Lifecycle
                 message = DapStream::read_stream(&mut self.adapter_stream) => {
-
-                    std::fs::write("/tmp/dap-watch-debug.log", "message from adapter nice").unwrap();
-
                     self.handle_streaming(StreamSources::Adapter, message).await?;
                 },
 
@@ -123,7 +111,6 @@ impl Proxy {
 
                 // Wait for building to complete
                 result = Proxy::await_build(&mut self.build_handle), if self.runtime_status == RuntimeStatus::Building => {
-
                     match result {
                         Ok(_status) => {
                             self.runtime_status = RuntimeStatus::Pending;
@@ -135,36 +122,50 @@ impl Proxy {
         }
     }
 
-    // Intercept messages from both streaming sources and deal with forwarding and state management
+    /// Intercept messages from both streaming sources and deal with forwarding and state management
     async fn handle_streaming(
         &mut self,
         source: StreamSources,
-        message: Result<Option<DapMessage>>,
+        message: Result<ReadResult>,
     ) -> Result<()> {
         match message {
-            Ok(None) => {}
-            Ok(Some(message)) => {
+            Ok(ReadResult::EOF) => {
+                if source == StreamSources::Ide {
+                    match self.config.runtime.mode {
+                        RuntimeModes::Headless { .. } => {
+                            // TODO: need to handle disconnection graecfully, meaning: clear breakpoints, and continue the program if paused
+                        }
+
+                        // In launch mode - disconnection means shutting down dap-watch and the adapter altogether, only in headless mode the program survives IDE disconnection.
+                        RuntimeModes::Launch => return self.graceful_shutdown().await,
+                    }
+                }
+            }
+            Ok(ReadResult::Message(message)) => {
                 if source == StreamSources::Ide {
                     if let Some(command) = self.state.capture(&message) {
                         log!(LogSource::Proxy, "State captured: {:?}", command);
                     }
-                } else if source == StreamSources::Adapter
-                    && self.runtime_status == RuntimeStatus::Replaying
-                {
-                    log!(
-                        LogSource::Adapter,
-                        "Suppressed message during replay: {}",
-                        message
-                    );
+                } else if source == StreamSources::Adapter {
+                    // While replaying state to a new debug adapter, we will surparss the messages coming back from the adapter.
+                    // The reason is simple - we don't want these messages to reach the IDE, as they were not actually requested on its behalf - the IDE is not aware of them.
+                    if self.runtime_status == RuntimeStatus::Replaying {
+                        log!(
+                            LogSource::Adapter,
+                            "Suppressed message during replay: {}",
+                            message
+                        );
 
-                    if self.state.is_last_replay_response(&message) {
-                        self.runtime_status = RuntimeStatus::Live;
-                        log!(LogSource::Proxy, "Message replay has finished successfuly");
+                        if self.state.is_last_replay_response(&message) {
+                            self.runtime_status = RuntimeStatus::Live;
+                            log!(LogSource::Proxy, "Message replay has finished successfuly");
+                        }
+
+                        return Ok(());
                     }
-
-                    return Ok(());
                 }
 
+                // Forward logic is simple - as long as the forward target is alive (IDE/Adapter), and we're not surprassing messages (during replay) -> write to target.
                 let (forward_stream, log_source) = match source {
                     StreamSources::Adapter => (&mut self.ide_stream, LogSource::Adapter),
                     StreamSources::Ide => (&mut self.adapter_stream, LogSource::Ide),
@@ -185,7 +186,7 @@ impl Proxy {
         Ok(())
     }
 
-    // Spawn the debugger, connect
+    /// Spawn the debugger, connect
     async fn start_runtime(&mut self) -> Result<()> {
         if self.runtime_status == RuntimeStatus::Pending {
             if self.ide_status == IdeStatus::Connected {
