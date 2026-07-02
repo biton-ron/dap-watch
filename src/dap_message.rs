@@ -1,3 +1,9 @@
+use std::{
+    collections::HashMap,
+    env::Args,
+    sync::atomic::{AtomicU64, Ordering},
+};
+
 use anyhow::{Context, Result, bail};
 
 /// We only specify in this enum commands are required for state preservation.
@@ -59,7 +65,13 @@ impl std::fmt::Display for DapMessage {
     }
 }
 
+const SEQ_COUNTER_INITIAL_VALUE: u64 = 9000000; // Arbitrarily high enough to not conflict with actual IDE messages
+
+/// Keep tracks of the manually constracted messages in DapMessage, makes sure seq is not used twice to avoid conflicts.
+static SEQ_COUNTER: AtomicU64 = AtomicU64::new(SEQ_COUNTER_INITIAL_VALUE);
+
 impl DapMessage {
+    /// Extract the sequence nubmer from self
     pub fn seq(&self) -> u64 {
         match self {
             DapMessage::Event { seq, .. }
@@ -68,11 +80,46 @@ impl DapMessage {
         }
     }
 
+    /// Construct a DapMessage directly from a json string, wrapping the string with Content-Length for proper raw_bytes representation.
+    fn from_str(body: &str) -> Result<DapMessage> {
+        let raw_bytes = format!("Content-Length: {}\r\n\r\n{}", body.len(), body).into_bytes();
+        return Self::parse_body(body.as_bytes(), &raw_bytes);
+    }
+
+    /// Get the next sequence and bump its value
+    fn get_next_seq() -> u64 {
+        SEQ_COUNTER.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Construct a launch message (DapMessage::Request with RequestCommandTypes::Launch).
+    pub fn launch(
+        program: &str,
+        args: &Vec<String>,
+        env: &HashMap<String, String>,
+    ) -> Result<DapMessage> {
+        let cwd = std::env::current_dir()?.to_string_lossy().to_string(); // TODO: Optionally make this configurable as well
+        let json = serde_json::json!({
+            "seq": Self::get_next_seq(),
+            "type": "request",
+            "command": "launch",
+            "arguments": {
+                "program": program,
+                "args": args,
+                "env": env,
+                "cwd": cwd,
+                // "stopOnEntry": false, TODO: maybe add support for stopOnEntry through config
+            }
+        });
+
+        let body = json.to_string();
+
+        Self::from_str(&body)
+    }
+
     /// Takes a complete body and parse it as a DapMessage.
     ///
-    /// `body` is only the JSON part of the message (no headers, full JSON).  
-    ///
-    /// `full_message` is full message including headers (it is kept on DapMessage for forward-passing between DapStreams).
+    /// - `body`: JSON payload only (no headers).
+    /// - `full_message`: Complete DAP message including headers, stored on the resulting [`DapMessage`] for forwarding between streams
     ///
     /// Body is assuemd to be a valid JSON buffer, if JSON parsing failed or DapMessage could not be constructed, and error would be returned instead.
     pub fn parse_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {

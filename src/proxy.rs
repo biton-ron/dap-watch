@@ -1,10 +1,11 @@
-use std::process::ExitStatus;
+use std::{collections::HashMap, process::ExitStatus};
 
 use anyhow::{Context, Result, bail};
 use tokio::{select, task::JoinHandle};
 
 use crate::{
     config::{MainConfig, RuntimeModes},
+    dap_message::DapMessage,
     dap_stream::{DapStream, ReadResult},
     file_watcher::FileWatcher,
     ide::{IdeHandler, IdeStatus},
@@ -75,7 +76,7 @@ impl Proxy {
     pub async fn run(&mut self) -> Result<()> {
         if let RuntimeModes::Headless { port, .. } = self.config.runtime.mode {
             log!(LogSource::Proxy, "Proxy is listening on :{}", port);
-            self.capture_headless_launch_state();
+            self.capture_headless_launch_state().await?;
         }
 
         loop {
@@ -125,8 +126,23 @@ impl Proxy {
     /// 2. First debugging - when program is already spawned, attaching to dap-watch means spawning a debug adapter - and forwarding the attach request to it.
     /// 3. Rebuild while debugging - in this case, we want the adapter itself to launch the program, so no code execution will be missed, in order to do that
     ///    we "inject" a DapMessage to ProxyState, so it would be replayed to those freshly spawned adapters after rebuild.
-    async fn capture_headless_launch_state(&mut self) {
-        // self.state.capture() // TODO: construct a launch message using something like DapMessage::launch
+    async fn capture_headless_launch_state(&mut self) -> Result<()> {
+        if let RuntimeModes::Headless {
+            program,
+            program_args,
+            ..
+        } = &self.config.runtime.mode
+        {
+            let launch =
+                DapMessage::launch(&program, &program_args, &HashMap::<String, String>::new())
+                    .context("Failed to construct a launch message")?;
+
+            self.state.capture(&launch);
+
+            log!(LogSource::Proxy, "State captured: launch");
+        }
+
+        Ok(())
     }
 
     /// Intercept messages from both streaming sources and deal with forwarding and state management

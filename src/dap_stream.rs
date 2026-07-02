@@ -144,14 +144,15 @@ mod tests {
         dap_stream::DapStream,
     };
 
-    fn make_dap_message(body: &str) -> Vec<u8> {
+    /// Takes a JSON string (partial or complete) & adds approproriate Content-Length header.
+    fn wrap_with_headers(body: &str) -> Vec<u8> {
         format!("Content-Length: {}\r\n\r\n{}", body.len(), body).into_bytes()
     }
 
     // DapStream::parse_message tests
     #[test]
     fn test_parse_complete_request() {
-        let buffer = make_dap_message(r#"{"seq":152,"type":"request","command":"initialize"}"#);
+        let buffer = wrap_with_headers(r#"{"seq":152,"type":"request","command":"initialize"}"#);
         let parsed = DapStream::parse_message(&buffer).unwrap();
 
         match parsed {
@@ -177,7 +178,7 @@ mod tests {
 
     #[test]
     fn test_parse_complete_event() {
-        let buffer = make_dap_message(r#"{"seq":1,"type":"event","event":"initialized"}"#);
+        let buffer = wrap_with_headers(r#"{"seq":1,"type":"event","event":"initialized"}"#);
         let parsed = DapStream::parse_message(&buffer).unwrap();
 
         match parsed {
@@ -199,7 +200,7 @@ mod tests {
     #[test]
     fn test_parse_complete_response() {
         let buffer =
-            make_dap_message(r#"{"seq":1,"type":"response","request_seq":15,"success":true}"#);
+            wrap_with_headers(r#"{"seq":1,"type":"response","request_seq":15,"success":true}"#);
         let parsed = DapStream::parse_message(&buffer).unwrap();
 
         match parsed {
@@ -245,8 +246,8 @@ mod tests {
     #[test]
     fn test_parse_message_with_leftovers() {
         let initial_message =
-            make_dap_message(r#"{"seq":500,"type":"request","command":"initialize"}"#);
-        let follow_up_message = make_dap_message(r#"{"seq":2,"type":"event","event":"stopped"}"#);
+            wrap_with_headers(r#"{"seq":500,"type":"request","command":"initialize"}"#);
+        let follow_up_message = wrap_with_headers(r#"{"seq":2,"type":"event","event":"stopped"}"#);
 
         // Buffer contains two messages at once, leftovers should include the follow up message
         let buffer = [initial_message.as_slice(), follow_up_message.as_slice()].concat();
@@ -274,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_parse_set_breakpoints_with_source_path() {
-        let buffer = make_dap_message(
+        let buffer = wrap_with_headers(
             r#"{"seq":1,"type":"request","command":"setBreakpoints","arguments":{"source":{"path":"/test/path.rs"},"breakpoints":[{"line":10}]}}"#,
         );
 
@@ -306,7 +307,7 @@ mod tests {
 
     #[test]
     fn test_parse_unknown_command_returns_pass_forward() {
-        let buffer = make_dap_message(r#"{"seq":1,"type":"request","command":"continue"}"#);
+        let buffer = wrap_with_headers(r#"{"seq":1,"type":"request","command":"continue"}"#);
         let parsed = DapStream::parse_message(&buffer).unwrap();
 
         match parsed {
