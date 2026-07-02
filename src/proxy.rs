@@ -1,6 +1,5 @@
-use std::{collections::HashMap, process::ExitStatus};
-
 use anyhow::{Context, Result, bail};
+use std::{collections::HashMap, process::ExitStatus};
 use tokio::{select, task::JoinHandle};
 
 use crate::{
@@ -46,6 +45,7 @@ pub struct Proxy {
     runtime_status: RuntimeStatus,
     adapter_stream: Option<DapStream>,
     build_handle: Option<JoinHandle<Result<ExitStatus>>>,
+    needs_replay: bool,
 
     // Watcher
     watcher: FileWatcher,
@@ -67,6 +67,7 @@ impl Proxy {
             adapter_stream: None,
             runtime_status: RuntimeStatus::Pending,
             build_handle: None,
+            needs_replay: false,
             watcher,
             config,
         })
@@ -88,6 +89,11 @@ impl Proxy {
                     log!(LogSource::Proxy, "IDE established connection");
                     self.ide_stream = Some(stream.context("Launching IdeServer has failed")?);
                     self.ide_status = IdeStatus::Connected;
+
+                    // First adapter spawn after IDE connects — skip replay.
+                    // State is empty (no prior IDE messages captured yet), and in headless mode the injected launch message
+                    // must not be replayed when the IDE is sending its own attach request.
+                    self.needs_replay = false;
                 },
 
                 message = DapStream::read_stream(&mut self.ide_stream), if self.runtime_status == RuntimeStatus::Live => {
@@ -238,6 +244,7 @@ impl Proxy {
             } else {
                 // TODO: This should only happen once
                 self.runtime.spawn_program().await?;
+                // self.runtime_status = RuntimeStatus::Spawned;
             }
         }
 
@@ -249,23 +256,27 @@ impl Proxy {
     /// state in the previous run, this includes: file breakpoints, function breakpoints and launch configuration.
     async fn replay_state(&mut self) -> Result<()> {
         if let Some(stream) = &mut self.adapter_stream {
-            log!(LogSource::Proxy, "Init state replay to the new debugger");
+            if self.needs_replay {
+                log!(LogSource::Proxy, "Init state replay to the new debugger");
 
-            self.runtime_status = RuntimeStatus::Replaying;
+                self.runtime_status = RuntimeStatus::Replaying;
 
-            let replay_sequence = self.state.get_replay_sequence();
+                let replay_sequence = self.state.get_replay_sequence();
 
-            if replay_sequence.len() > 0 {
-                for message in replay_sequence {
-                    stream
-                        .write(message)
-                        .await
-                        .context("Replaying a message has failed")?;
+                if replay_sequence.len() > 0 {
+                    for message in replay_sequence {
+                        stream
+                            .write(message)
+                            .await
+                            .context("Replaying a message has failed")?;
+                    }
+
+                    return Ok(());
                 }
-            } else {
-                self.runtime_status = RuntimeStatus::Live;
-                log!(LogSource::Proxy, "Message replay has finished successfuly");
             }
+
+            self.runtime_status = RuntimeStatus::Live;
+            log!(LogSource::Proxy, "Message replay has finished successfuly");
         }
 
         Ok(())
@@ -277,6 +288,7 @@ impl Proxy {
     async fn rebuild(&mut self) -> Result<()> {
         self.runtime.kill().await?;
 
+        self.needs_replay = true;
         self.adapter_stream = None;
         self.runtime_status = RuntimeStatus::Building;
         self.build_handle = Some(self.runtime.build());

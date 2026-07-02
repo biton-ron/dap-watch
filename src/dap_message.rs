@@ -65,7 +65,8 @@ impl std::fmt::Display for DapMessage {
     }
 }
 
-const SEQ_COUNTER_INITIAL_VALUE: u64 = 9000000; // Arbitrarily high enough to not conflict with actual IDE messages
+/// Arbitrarily high enough to not conflict with actual IDE messages
+const SEQ_COUNTER_INITIAL_VALUE: u64 = 9000000;
 
 /// Keep tracks of the manually constracted messages in DapMessage, makes sure seq is not used twice to avoid conflicts.
 static SEQ_COUNTER: AtomicU64 = AtomicU64::new(SEQ_COUNTER_INITIAL_VALUE);
@@ -168,8 +169,8 @@ impl DapMessage {
             }
             "request" => {
                 let command_type_str = parsed_json["command"].as_str().context(
-                "Could not parse request: a Request should have a command attached to it as a string",
-            )?;
+                    "Could not parse request: a Request should have a command attached to it as a string",
+                )?;
 
                 let command: RequestCommandTypes = match command_type_str {
                     "setBreakpoints" => {
