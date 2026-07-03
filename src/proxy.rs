@@ -28,7 +28,7 @@ pub enum RuntimeStatus {
     BuildingFailed,
     Spawned,
     Replaying,
-    Live,
+    Debugging,
 }
 
 pub struct Proxy {
@@ -96,7 +96,7 @@ impl Proxy {
                     self.needs_replay = false;
                 },
 
-                message = DapStream::read_stream(&mut self.ide_stream), if self.runtime_status == RuntimeStatus::Live => {
+                message = DapStream::read_stream(&mut self.ide_stream), if self.runtime_status == RuntimeStatus::Debugging => {
                     self.handle_streaming(StreamSources::Ide, message).await?
                 },
 
@@ -186,7 +186,7 @@ impl Proxy {
                         );
 
                         if self.state.is_last_replay_response(&message) {
-                            self.runtime_status = RuntimeStatus::Live;
+                            self.runtime_status = RuntimeStatus::Debugging;
                             log!(LogSource::Proxy, "Message replay has finished successfuly");
                         }
 
@@ -215,37 +215,44 @@ impl Proxy {
         Ok(())
     }
 
-    /// Spawn the debugger, connect
+    /// Starts the runtime based on current state and mode.
+    ///
+    /// Two paths depending on whether an IDE is connected:
+    ///
+    /// **IDE connected** (launch mode, or headless after IDE connects):
+    ///   `Pending`/`Spawned` -> spawn adapter -> connect -> `Replaying` -> `Debugging`
+    ///
+    /// **No IDE** (headless startup):
+    ///   `Pending` -> spawn program as child process -> `Spawned`
     async fn start_runtime(&mut self) -> Result<()> {
-        if self.runtime_status == RuntimeStatus::Pending {
-            // TODO: Pending OR debugging but no debugger is live
-            if self.ide_status == IdeStatus::Connected {
-                self.runtime
-                    .spawn_adapter()
-                    .await
-                    .context("Failed spawning debug process")?;
-
-                log!(LogSource::Proxy, "Debug adapter spawned");
-
-                self.runtime_status = RuntimeStatus::Spawned;
-
-                self.adapter_stream = Some(
+        match self.runtime_status {
+            RuntimeStatus::Spawned | RuntimeStatus::Pending => {
+                if self.ide_status == IdeStatus::Connected {
                     self.runtime
-                        .connect()
+                        .spawn_adapter()
                         .await
-                        .context("Unable to connect to the debugger process")?,
-                );
+                        .context("Failed spawning debug process")?;
 
-                log!(LogSource::Proxy, "Proxy is connected to debug adapter");
+                    log!(LogSource::Proxy, "Debug adapter spawned");
 
-                self.replay_state()
-                    .await
-                    .context("Failed to replay messages")?;
-            } else {
-                // TODO: This should only happen once
-                self.runtime.spawn_program().await?;
-                // self.runtime_status = RuntimeStatus::Spawned;
+                    self.adapter_stream = Some(
+                        self.runtime
+                            .connect()
+                            .await
+                            .context("Unable to connect to the debugger process")?,
+                    );
+
+                    log!(LogSource::Proxy, "Proxy is connected to debug adapter");
+
+                    self.replay_state()
+                        .await
+                        .context("Failed to replay messages")?;
+                } else if self.runtime_status == RuntimeStatus::Pending {
+                    self.runtime.spawn_program().await?;
+                    self.runtime_status = RuntimeStatus::Spawned;
+                }
             }
+            _ => {}
         }
 
         Ok(())
@@ -275,7 +282,7 @@ impl Proxy {
                 }
             }
 
-            self.runtime_status = RuntimeStatus::Live;
+            self.runtime_status = RuntimeStatus::Debugging;
             log!(LogSource::Proxy, "Message replay has finished successfuly");
         }
 
