@@ -117,6 +117,38 @@ impl DapMessage {
         Self::from_str(&body)
     }
 
+    /// Construct a launch message (DapMessage::Request with RequestCommandTypes::Launch).
+    pub fn clear_breakpoints(command: RequestCommandTypes) -> Result<DapMessage> {
+        let commandName = match command {
+            RequestCommandTypes::SetBreakpoints(_) => "setBreakpoints",
+            RequestCommandTypes::SetExceptionBreakpoints => "setExceptionBreakpoints",
+            RequestCommandTypes::SetFunctionBreakpoints => "setFunctionBreakpoints",
+            _ => bail!("Only breakpoints related commands are expected"),
+        };
+
+        let arguments = match command {
+            RequestCommandTypes::SetBreakpoints(path) => {
+                serde_json::json!({ "breakpoints": [], "source": { "path": path } })
+            }
+            RequestCommandTypes::SetFunctionBreakpoints
+            | RequestCommandTypes::SetExceptionBreakpoints => {
+                serde_json::json!({ "breakpoints": [] })
+            }
+            _ => bail!("Only breakpoints related commands are expected"),
+        };
+
+        let json = serde_json::json!({
+            "seq": Self::get_next_seq(),
+            "type": "request",
+            "command": commandName,
+            "arguments": arguments,
+        });
+
+        let body = json.to_string();
+
+        Self::from_str(&body)
+    }
+
     /// Takes a complete body and parse it as a DapMessage.
     ///
     /// - `body`: JSON payload only (no headers).

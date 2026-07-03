@@ -51,6 +51,16 @@ impl ProxyState {
         None
     }
 
+    /// Get breakpoints file list
+    pub fn get_breakpoints_file_paths(&self) -> Vec<&String> {
+        return self.breakpoints.keys().collect();
+    }
+
+    /// Bring state back to its default values
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
     /// Produces a sequence of DapMessage to be sent to the adapter when its respawned, based on the proxy state.
     pub fn get_replay_sequence(&mut self) -> Vec<&DapMessage> {
         let mut replay_sequence = vec![

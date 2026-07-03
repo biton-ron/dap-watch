@@ -4,7 +4,7 @@ use tokio::{select, task::JoinHandle};
 
 use crate::{
     config::{MainConfig, RuntimeModes},
-    dap_message::DapMessage,
+    dap_message::{DapMessage, RequestCommandTypes},
     dap_stream::{DapStream, ReadResult},
     file_watcher::FileWatcher,
     ide::{IdeHandler, IdeStatus},
@@ -77,7 +77,6 @@ impl Proxy {
     pub async fn run(&mut self) -> Result<()> {
         if let RuntimeModes::Headless { port, .. } = self.config.runtime.mode {
             log!(LogSource::Proxy, "Proxy is listening on :{}", port);
-            self.capture_headless_launch_state().await?;
         }
 
         loop {
@@ -94,6 +93,7 @@ impl Proxy {
                     // State is empty (no prior IDE messages captured yet), and in headless mode the injected launch message
                     // must not be replayed when the IDE is sending its own attach request.
                     self.needs_replay = false;
+                    self.capture_headless_launch_state().await?;
                 },
 
                 message = DapStream::read_stream(&mut self.ide_stream), if self.runtime_status == RuntimeStatus::Debugging => {
@@ -162,9 +162,8 @@ impl Proxy {
                 if source == StreamSources::Ide {
                     match self.config.runtime.mode {
                         RuntimeModes::Headless { .. } => {
-                            // TODO: need to handle disconnection graecfully, meaning: clear breakpoints, and continue the program if paused
+                            return self.handle_ide_disconnection().await;
                         }
-
                         // In launch mode - disconnection means shutting down dap-watch and the adapter altogether, only in headless mode the program survives IDE disconnection.
                         RuntimeModes::Launch => return self.graceful_shutdown().await,
                     }
@@ -247,13 +246,60 @@ impl Proxy {
                     self.replay_state()
                         .await
                         .context("Failed to replay messages")?;
-                } else if self.runtime_status == RuntimeStatus::Pending {
+                } else if self.runtime_status == RuntimeStatus::Pending
+                    && let RuntimeModes::Headless { .. } = self.config.runtime.mode
+                {
                     self.runtime.spawn_program().await?;
                     self.runtime_status = RuntimeStatus::Spawned;
                 }
             }
             _ => {}
         }
+
+        Ok(())
+    }
+
+    /// This is only triggered on `::Headless` mode (on `::Launch` mode, IDE disconnections means graceful shutdown).
+    /// We need to make sure that state is cleared (from both state & the live adapter) - which means all breakpoints are cleared.
+    /// and we also need to make sure that if the program is paused at this point in time we continue execution immediately.
+    /// from here, subsequent `start_runtime()` calls will not need the adapter, and just start the program directly (until another connection is made by the IDE).
+    async fn handle_ide_disconnection(&mut self) -> Result<()> {
+        self.ide_stream = None;
+        self.ide_status = IdeStatus::Listening;
+
+        match self.runtime_status {
+            RuntimeStatus::Debugging | RuntimeStatus::Replaying => {
+                if let Some(stream) = &mut self.adapter_stream {
+                    // Clear sequence will make sure of both: no breakpoints are active & app execution continues if currently breaking.
+                    let mut clear_sequence: Vec<DapMessage> = vec![];
+
+                    clear_sequence.push(DapMessage::clear_breakpoints(
+                        RequestCommandTypes::SetExceptionBreakpoints,
+                    )?);
+                    clear_sequence.push(DapMessage::clear_breakpoints(
+                        RequestCommandTypes::SetFunctionBreakpoints,
+                    )?);
+
+                    for file in self.state.get_breakpoints_file_paths() {
+                        clear_sequence.push(DapMessage::clear_breakpoints(
+                            RequestCommandTypes::SetBreakpoints(file.to_string()),
+                        )?);
+                    }
+
+                    // TODO: add to the sequence "continue" if app is currently breaking
+
+                    for message in clear_sequence {
+                        stream
+                            .write(&message)
+                            .await
+                            .context("Could not send a clear message to adapter")?;
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        self.state.clear();
 
         Ok(())
     }
