@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use std::{collections::HashMap, process::ExitStatus};
+use std::process::ExitStatus;
 use tokio::{select, task::JoinHandle};
 
 use crate::{
@@ -89,11 +89,9 @@ impl Proxy {
                     self.ide_stream = Some(stream.context("Launching IdeServer has failed")?);
                     self.ide_status = IdeStatus::Connected;
 
-                    // First adapter spawn after IDE connects — skip replay.
-                    // State is empty (no prior IDE messages captured yet), and in headless mode the injected launch message
-                    // must not be replayed when the IDE is sending its own attach request.
+                    // First adapter spawn after IDE connects — skip replay as state is empty (no prior IDE messages captured yet),
+                    // and in headless mode the injected launch message must not be replayed since the IDE is sending its own attach request.
                     self.needs_replay = false;
-                    self.capture_headless_launch_state().await?;
                 },
 
                 message = DapStream::read_stream(&mut self.ide_stream), if self.runtime_status == RuntimeStatus::Debugging => {
@@ -127,30 +125,6 @@ impl Proxy {
         }
     }
 
-    /// On headless mode, there are 3 different possibilities for the runtime to operate:
-    /// 1. No debugging - program is started as a child process, no debug adapter is spawned at this point.
-    /// 2. First debugging - when program is already spawned, attaching to dap-watch means spawning a debug adapter - and forwarding the attach request to it.
-    /// 3. Rebuild while debugging - in this case, we want the adapter itself to launch the program, so no code execution will be missed, in order to do that
-    ///    we "inject" a DapMessage to ProxyState, so it would be replayed to those freshly spawned adapters after rebuild.
-    async fn capture_headless_launch_state(&mut self) -> Result<()> {
-        if let RuntimeModes::Headless {
-            program,
-            program_args,
-            ..
-        } = &self.config.runtime.mode
-        {
-            let launch =
-                DapMessage::launch(&program, &program_args, &HashMap::<String, String>::new())
-                    .context("Failed to construct a launch message")?;
-
-            self.state.capture(&launch);
-
-            log!(LogSource::Proxy, "State captured: launch");
-        }
-
-        Ok(())
-    }
-
     /// Intercept messages from both streaming sources and deal with forwarding and state management
     async fn handle_streaming(
         &mut self,
@@ -170,35 +144,37 @@ impl Proxy {
                 }
             }
             Ok(ReadResult::Message(message)) => {
-                if source == StreamSources::Ide {
-                    if let Some(command) = self.state.capture(&message) {
-                        log!(LogSource::Proxy, "State captured: {:?}", command);
-                    }
-                } else if source == StreamSources::Adapter {
-                    // While replaying state to a new debug adapter, we will surparss the messages coming back from the adapter.
-                    // The reason is simple - we don't want these messages to reach the IDE, as they were not actually requested on its behalf - the IDE is not aware of them.
-                    if self.runtime_status == RuntimeStatus::Replaying {
-                        log!(
-                            LogSource::Adapter,
-                            "Suppressed message during replay: {}",
-                            message
-                        );
-
-                        if self.state.is_last_replay_response(&message) {
-                            self.runtime_status = RuntimeStatus::Debugging;
-                            log!(LogSource::Proxy, "Message replay has finished successfuly");
+                let (forward_stream, log_source) = match source {
+                    StreamSources::Ide => {
+                        if let Ok(Some(command)) = self.state.capture(&message) {
+                            log!(LogSource::Proxy, "State captured: {:?}", command);
                         }
 
-                        return Ok(());
+                        (&mut self.adapter_stream, LogSource::Ide)
                     }
-                }
+                    StreamSources::Adapter => {
+                        // While replaying state to a new debug adapter, we will suppress the messages coming back from the adapter.
+                        // The reason is simple - we don't want these messages to reach the IDE, as they were not actually requested on its behalf - the IDE is not aware of them.
+                        if self.runtime_status == RuntimeStatus::Replaying {
+                            log!(
+                                LogSource::Adapter,
+                                "Suppressed message during replay: {}",
+                                message
+                            );
 
-                // Forward logic is simple - as long as the forward target is alive (IDE/Adapter), and we're not surprassing messages (during replay) -> write to target.
-                let (forward_stream, log_source) = match source {
-                    StreamSources::Adapter => (&mut self.ide_stream, LogSource::Adapter),
-                    StreamSources::Ide => (&mut self.adapter_stream, LogSource::Ide),
+                            if self.state.is_last_replay_response(&message) {
+                                self.runtime_status = RuntimeStatus::Debugging;
+                                log!(LogSource::Proxy, "Message replay has finished successfuly");
+                            }
+
+                            return Ok(());
+                        }
+
+                        (&mut self.ide_stream, LogSource::Adapter)
+                    }
                 };
 
+                // Forward logic is simple - as long as the forward target is alive (IDE/Adapter), and we're not suppressing messages (during replay) -> write to target.
                 if let Some(forward_stream) = forward_stream {
                     forward_stream
                         .write(&message)

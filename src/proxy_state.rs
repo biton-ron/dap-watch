@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use anyhow::{Context, Result};
+
 use crate::dap_message::{
     DapMessage::{self, Request},
     RequestCommandTypes,
@@ -7,22 +9,22 @@ use crate::dap_message::{
 
 #[derive(Default, Debug)]
 pub struct ProxyState {
-    // Command specific state
     initialize: Option<DapMessage>,
+
+    /// On RuntimeMode::Headless, the "attach" request from the IDE, will be convert to a launch
+    /// request and will be stored here, on subsequent rebuilds, only the launch will be replayed.
     launch: Option<DapMessage>,
     configuration_done: Option<DapMessage>,
     function_breakpoints: Option<DapMessage>,
     exception_breakpoints: Option<DapMessage>,
     breakpoints: HashMap<String, DapMessage>, // Hashed by file path
-
-    // Logical state
     last_replayed_seq: Option<u64>,
 }
 
 impl ProxyState {
     /// Captures relevant IDE messages into debug state for replay.
     /// Returns the command type if state was updated, `None` otherwise.
-    pub fn capture(&mut self, message: &DapMessage) -> Option<RequestCommandTypes> {
+    pub fn capture(&mut self, message: &DapMessage) -> Result<Option<RequestCommandTypes>> {
         // Only requests have some effect on the state
         if let Request { command, .. } = message {
             let message = message.clone();
@@ -30,6 +32,19 @@ impl ProxyState {
             match command {
                 RequestCommandTypes::Initialize => self.initialize = Some(message),
                 RequestCommandTypes::Launch => self.launch = Some(message),
+
+                // When recieveing an "attach" request from the IDE, it means we're in ::Headless mode.
+                // Which means that only the very-first "attach" request is sent as it-is to the adapter.
+                // But in cases of rebuild, we're transforming that attach into a "launch" request, since
+                // there is no process to attach to, and we want to make sure that the program starts after
+                // breakpoints and the rest of the state is set, this way, no code execution will be missed.
+                RequestCommandTypes::Attach(arguments) => {
+                    // TODO: Write a unit test for attach -> launch convertion
+                    self.launch =
+                        Some(DapMessage::launch(arguments).context(
+                            "Could not generate a launch message from the attach message",
+                        )?);
+                }
                 RequestCommandTypes::ConfigurationDone => self.configuration_done = Some(message),
                 RequestCommandTypes::SetExceptionBreakpoints => {
                     self.exception_breakpoints = Some(message)
@@ -44,11 +59,11 @@ impl ProxyState {
             }
 
             if !matches!(command, RequestCommandTypes::PassForward(_)) {
-                return Some(command.clone());
+                return Ok(Some(command.clone()));
             }
         }
 
-        None
+        Ok(None)
     }
 
     /// Get breakpoints file list
@@ -133,12 +148,12 @@ mod test {
         );
         let configuration_done = make_request(7, RequestCommandTypes::ConfigurationDone);
 
-        state.capture(&initialize);
-        state.capture(&launch);
-        state.capture(&exception_breakpoints);
-        state.capture(&function_breakpoints);
-        state.capture(&breakpoints);
-        state.capture(&configuration_done);
+        state.capture(&initialize).unwrap();
+        state.capture(&launch).unwrap();
+        state.capture(&exception_breakpoints).unwrap();
+        state.capture(&function_breakpoints).unwrap();
+        state.capture(&breakpoints).unwrap();
+        state.capture(&configuration_done).unwrap();
 
         assert_eq!(state.initialize, Some(initialize));
         assert_eq!(state.launch, Some(launch));
@@ -168,8 +183,8 @@ mod test {
             RequestCommandTypes::SetBreakpoints(String::from("file_b.rs")),
         );
 
-        state.capture(&file_a_breakpoints);
-        state.capture(&file_b_breakpoints);
+        state.capture(&file_a_breakpoints).unwrap();
+        state.capture(&file_b_breakpoints).unwrap();
 
         assert!(
             state
@@ -191,7 +206,7 @@ mod test {
         let mut state = ProxyState::default();
         let message = make_request(1, PassForward(String::from("Evaluate")));
 
-        assert_eq!(state.capture(&message), None);
+        assert!(state.capture(&message).unwrap().is_none());
     }
 
     #[test]
@@ -203,7 +218,7 @@ mod test {
             raw_bytes: vec![],
         };
 
-        assert_eq!(state.capture(&message), None);
+        assert!(state.capture(&message).unwrap().is_none());
     }
 
     #[test]
@@ -215,7 +230,7 @@ mod test {
             event: EventTypes::Output(String::from("Test Output")),
         };
 
-        assert_eq!(state.capture(&message), None);
+        assert!(state.capture(&message).unwrap().is_none());
     }
 
     // get_replay_sequence tests
@@ -234,10 +249,10 @@ mod test {
             RequestCommandTypes::SetBreakpoints(String::from("testfile_b.rs")),
         );
 
-        state.capture(&initialize);
-        state.capture(&breakpoints_a);
-        state.capture(&configuration_done);
-        state.capture(&breakpoints_b);
+        state.capture(&initialize).unwrap();
+        state.capture(&breakpoints_a).unwrap();
+        state.capture(&configuration_done).unwrap();
+        state.capture(&breakpoints_b).unwrap();
 
         let sequence = state.get_replay_sequence();
 
@@ -271,13 +286,13 @@ mod test {
             RequestCommandTypes::SetBreakpoints(String::from("testfile_b.rs")),
         );
 
-        state.capture(&initialize);
-        state.capture(&launch);
-        state.capture(&exception_breakpoints);
-        state.capture(&function_breakpoints);
-        state.capture(&breakpoints_a);
-        state.capture(&configuration_done);
-        state.capture(&breakpoints_b);
+        state.capture(&initialize).unwrap();
+        state.capture(&launch).unwrap();
+        state.capture(&exception_breakpoints).unwrap();
+        state.capture(&function_breakpoints).unwrap();
+        state.capture(&breakpoints_a).unwrap();
+        state.capture(&configuration_done).unwrap();
+        state.capture(&breakpoints_b).unwrap();
 
         let sequence = state.get_replay_sequence();
 
@@ -308,8 +323,8 @@ mod test {
         let initialize = make_request(1, RequestCommandTypes::Initialize);
         let configuration_done = make_request(3, RequestCommandTypes::ConfigurationDone);
 
-        state.capture(&initialize);
-        state.capture(&configuration_done);
+        state.capture(&initialize).unwrap();
+        state.capture(&configuration_done).unwrap();
 
         _ = state.get_replay_sequence();
 
@@ -350,8 +365,8 @@ mod test {
         let initialize = make_request(1, RequestCommandTypes::Initialize);
         let configuration_done = make_request(3, RequestCommandTypes::ConfigurationDone);
 
-        state.capture(&initialize);
-        state.capture(&configuration_done);
+        state.capture(&initialize).unwrap();
+        state.capture(&configuration_done).unwrap();
 
         let response = DapMessage::Response {
             seq: 5,

@@ -13,7 +13,19 @@
             "type": "lldb",
             "request": "attach",
             "program": "${workspaceFolder}/target/debug/test_app_one",
-            "debugServer": 2500,
+            "debugServer": 2500
+        },
+        {
+            "name": "Launch via lldb",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/test_app_one",
+        },
+        {
+            "name": "Attach via lldb",
+            "type": "lldb",
+            "request": "attach",
+            "pid": "${command:pickProcess}"
         }
     ]
 }

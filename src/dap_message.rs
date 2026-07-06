@@ -1,10 +1,8 @@
-use std::{
-    collections::HashMap,
-    env::Args,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, bail};
+
+use crate::{log, logger::LogSource};
 
 /// We only specify in this enum commands are required for state preservation.
 /// As an example - setBreakpoints is a crucial part of the state, and will be replayed to debuggers when re-spawned.
@@ -13,11 +11,16 @@ use anyhow::{Context, Result, bail};
 pub enum RequestCommandTypes {
     Initialize,
     Launch,
-    ConfigurationDone,
-    SetBreakpoints(String), // String is the file_path
+    /// Attach holds the parsed arguments from the full message JSON.
+    /// These arguments are used to re-construct a Launch message during rebuild.
+    Attach(serde_json::Value),
+    /// SetBreakpoints is different as it holds file_path as String.
+    SetBreakpoints(String),
     SetExceptionBreakpoints,
     SetFunctionBreakpoints,
-    PassForward(String), // Fallback for all the rest
+    ConfigurationDone,
+    /// Fallback for all other command types
+    PassForward(String),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -93,23 +96,12 @@ impl DapMessage {
     }
 
     /// Construct a launch message (DapMessage::Request with RequestCommandTypes::Launch).
-    pub fn launch(
-        program: &str,
-        args: &Vec<String>,
-        env: &HashMap<String, String>,
-    ) -> Result<DapMessage> {
-        let cwd = std::env::current_dir()?.to_string_lossy().to_string(); // TODO: Optionally make this configurable as well
+    pub fn launch(arguments: &serde_json::Value) -> Result<DapMessage> {
         let json = serde_json::json!({
             "seq": Self::get_next_seq(),
             "type": "request",
             "command": "launch",
-            "arguments": {
-                "program": program,
-                "args": args,
-                "env": env,
-                "cwd": cwd,
-                // "stopOnEntry": false, TODO: maybe add support for stopOnEntry through config
-            }
+            "arguments": arguments
         });
 
         let body = json.to_string();
@@ -119,7 +111,7 @@ impl DapMessage {
 
     /// Construct a launch message (DapMessage::Request with RequestCommandTypes::Launch).
     pub fn clear_breakpoints(command: RequestCommandTypes) -> Result<DapMessage> {
-        let commandName = match command {
+        let command_name = match command {
             RequestCommandTypes::SetBreakpoints(_) => "setBreakpoints",
             RequestCommandTypes::SetExceptionBreakpoints => "setExceptionBreakpoints",
             RequestCommandTypes::SetFunctionBreakpoints => "setFunctionBreakpoints",
@@ -140,7 +132,7 @@ impl DapMessage {
         let json = serde_json::json!({
             "seq": Self::get_next_seq(),
             "type": "request",
-            "command": commandName,
+            "command": command_name,
             "arguments": arguments,
         });
 
@@ -156,6 +148,13 @@ impl DapMessage {
     ///
     /// Body is assuemd to be a valid JSON buffer, if JSON parsing failed or DapMessage could not be constructed, and error would be returned instead.
     pub fn parse_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
+        // TODO: Make sure this is only printed on debug log level
+        log!(
+            LogSource::Proxy,
+            "Dap Message constructed: {:?}",
+            str::from_utf8(body)
+        );
+
         let parsed_json: serde_json::Value =
             serde_json::from_slice(body).context("Could not parse DAP message: Invalid JSON")?;
 
@@ -216,6 +215,7 @@ impl DapMessage {
                     "setFunctionBreakpoints" => RequestCommandTypes::SetFunctionBreakpoints,
                     "initialize" => RequestCommandTypes::Initialize,
                     "launch" => RequestCommandTypes::Launch,
+                    "attach" => RequestCommandTypes::Attach(parsed_json["arguments"].clone()),
                     "configurationDone" => RequestCommandTypes::ConfigurationDone,
                     _ => RequestCommandTypes::PassForward(String::from(command_type_str)),
                 };
