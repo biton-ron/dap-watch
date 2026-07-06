@@ -103,9 +103,16 @@ impl Proxy {
                     self.handle_streaming(StreamSources::Adapter, message).await?;
                 },
 
+                // Output piping to the adapter
+                output = self.runtime.read_program_output() => {
+                    if let Some(output) = output {
+                        self.log_and_notify(LogSource::Program, output).await?;
+                    }
+                },
+
                 // File Watching
                 _ = self.watcher.next() => {
-                    log!(LogSource::Watcher, "File changed, rebuilding...");
+                    self.log_and_notify(LogSource::Watcher, "File changed, rebuilding...").await?;
                     self.rebuild().await?;
                 },
 
@@ -346,6 +353,28 @@ impl Proxy {
                 LogLevel::Verbose,
                 "Message replay has finished successfuly"
             );
+        }
+
+        Ok(())
+    }
+
+    /// Log to temrinal when in ::Headless mode.
+    /// Notify to IDE as an Output event if currently debugging.
+    async fn log_and_notify(&mut self, log_source: LogSource, message: impl Into<String>) -> Result<()> {
+        let message = message.into();
+
+        if let RuntimeModes::Headless { .. } = &self.config.runtime.mode {
+            log!(log_source, "{}", message);
+        }
+
+        if let Some(stream) = &mut self.ide_stream {
+            let output = format!("{}\n", message);
+            let message = DapMessage::make_output_event(&output).context("Could not create an output event")?;
+
+            stream
+                .write(&message)
+                .await
+                .context("Could not send a message to IDE stream")?;
         }
 
         Ok(())

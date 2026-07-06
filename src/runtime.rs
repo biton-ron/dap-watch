@@ -1,8 +1,6 @@
 use crate::{
     config::{RuntimeConfig, RuntimeModes},
     dap_stream::DapStream,
-    log,
-    logger::LogSource,
 };
 
 use anyhow::{Context, Result, bail};
@@ -14,6 +12,7 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncRead, BufReader},
     net::{TcpListener, TcpStream},
     process::{Child, Command},
+    sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
     task::JoinHandle,
     time::sleep,
 };
@@ -25,6 +24,7 @@ pub struct Runtime {
     /// process directly (headless, not debugging). When the adapter owns the
     /// process (rebuild during debug), this is None.
     program: Option<Child>,
+    program_output_channel: (UnboundedSender<String>, UnboundedReceiver<String>),
 
     /// The debug adapter process (e.g. codelldb, delve). Spawned when
     /// the IDE connects, killed when IDE disconnects or on rebuild.
@@ -41,6 +41,7 @@ impl Runtime {
     pub fn new(config: &RuntimeConfig) -> Runtime {
         Runtime {
             program: None,
+            program_output_channel: unbounded_channel::<String>(),
             adapter_port: None,
             adapter: None,
             config: config.clone(),
@@ -92,8 +93,8 @@ impl Runtime {
                 .spawn()
                 .context("Unable to spawn program")?;
 
-            Self::pipe_program_logs(child.stdout.take().unwrap());
-            Self::pipe_program_logs(child.stderr.take().unwrap());
+            self.pipe_program_logs(child.stdout.take().unwrap());
+            self.pipe_program_logs(child.stderr.take().unwrap());
 
             self.program = Some(child);
         }
@@ -116,20 +117,28 @@ impl Runtime {
         Ok(())
     }
 
-    fn pipe_program_logs(source: impl AsyncRead + Unpin + Send + 'static) {
-        tokio::spawn(async {
+    pub async fn read_program_output(&mut self) -> Option<String> {
+        let (_, reciever) = &mut self.program_output_channel;
+        let next_line = reciever.recv().await;
+        return next_line;
+    }
+
+    fn pipe_program_logs(&self, source: impl AsyncRead + Unpin + Send + 'static) {
+        let (sender, _) = &self.program_output_channel;
+        let sender = sender.clone();
+
+        tokio::spawn(async move {
             let reader = BufReader::new(source);
             let mut lines = reader.lines();
 
             while let Ok(Some(line)) = lines.next_line().await {
-                log!(LogSource::Program, "{}", line);
+                let _ = sender.send(line);
             }
         });
     }
 
     pub async fn kill(&mut self) -> Result<()> {
         self.kill_adapter().await.context("Failed to kill debug adapter")?;
-
         self.kill_program().await.context("Can't kill program")?;
 
         Ok(())

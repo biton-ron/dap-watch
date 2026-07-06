@@ -140,6 +140,22 @@ impl DapMessage {
         Self::from_str(&body)
     }
 
+    /// Construct an output message
+    pub fn make_output_event(output: &str) -> Result<DapMessage> {
+        let json = serde_json::json!({
+            "seq": Self::get_next_seq(),
+            "type": "event",
+            "event": "output",
+            "body": {
+                "output": output,
+            }
+        });
+
+        let body = json.to_string();
+
+        Self::from_str(&body)
+    }
+
     /// Construct a launch message (DapMessage::Request with RequestCommandTypes::Launch).
     pub fn clear_breakpoints(command: RequestCommandTypes) -> Result<DapMessage> {
         let command_name = match command {
