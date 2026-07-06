@@ -5,6 +5,7 @@ use proxy::Proxy;
 use crate::{
     cli::{Cli, Commands},
     config::MainConfig,
+    logger::LogLevel,
 };
 
 mod cli;
@@ -21,6 +22,13 @@ mod runtime;
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // Log level
+    if cli.verbose {
+        logger::set_log_level(LogLevel::Verbose);
+    } else if cli.debug {
+        logger::set_log_level(LogLevel::Debug);
+    }
 
     match cli.command {
         Some(Commands::Init(_)) => MainConfig::init(),

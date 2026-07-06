@@ -9,7 +9,7 @@ use crate::{
     file_watcher::FileWatcher,
     ide::{IdeHandler, IdeStatus},
     log,
-    logger::LogSource,
+    logger::{LogLevel, LogSource},
     proxy_state::ProxyState,
     runtime::Runtime,
 };
@@ -147,7 +147,12 @@ impl Proxy {
                 let (forward_stream, log_source) = match source {
                     StreamSources::Ide => {
                         if let Ok(Some(command)) = self.state.capture(&message) {
-                            log!(LogSource::Proxy, "State captured: {:?}", command);
+                            log!(
+                                LogSource::Proxy,
+                                LogLevel::Debug,
+                                "State captured: {:?}",
+                                command
+                            );
                         }
 
                         (&mut self.adapter_stream, LogSource::Ide)
@@ -158,13 +163,18 @@ impl Proxy {
                         if self.runtime_status == RuntimeStatus::Replaying {
                             log!(
                                 LogSource::Adapter,
+                                LogLevel::Debug,
                                 "Suppressed message during replay: {}",
                                 message
                             );
 
                             if self.state.is_last_replay_response(&message) {
                                 self.runtime_status = RuntimeStatus::Debugging;
-                                log!(LogSource::Proxy, "Message replay has finished successfuly");
+                                log!(
+                                    LogSource::Proxy,
+                                    LogLevel::Debug,
+                                    "Message replay has finished successfuly"
+                                );
                             }
 
                             return Ok(());
@@ -181,7 +191,7 @@ impl Proxy {
                         .await
                         .context("Could not write a message to a stream")?;
 
-                    log!(log_source, "{}", message);
+                    log!(log_source, LogLevel::Verbose, "{}", message);
                 }
             }
             Err(e) => bail!(e),
@@ -208,7 +218,7 @@ impl Proxy {
                         .await
                         .context("Failed spawning debug process")?;
 
-                    log!(LogSource::Proxy, "Debug adapter spawned");
+                    log!(LogSource::Proxy, LogLevel::Verbose, "Debug adapter spawned");
 
                     self.adapter_stream = Some(
                         self.runtime
@@ -217,7 +227,11 @@ impl Proxy {
                             .context("Unable to connect to the debugger process")?,
                     );
 
-                    log!(LogSource::Proxy, "Proxy is connected to debug adapter");
+                    log!(
+                        LogSource::Proxy,
+                        LogLevel::Verbose,
+                        "Proxy is connected to debug adapter"
+                    );
 
                     self.replay_state()
                         .await
@@ -286,7 +300,11 @@ impl Proxy {
     async fn replay_state(&mut self) -> Result<()> {
         if let Some(stream) = &mut self.adapter_stream {
             if self.needs_replay {
-                log!(LogSource::Proxy, "Init state replay to the new debugger");
+                log!(
+                    LogSource::Proxy,
+                    LogLevel::Verbose,
+                    "Init state replay to the new debugger"
+                );
 
                 self.runtime_status = RuntimeStatus::Replaying;
 
@@ -305,7 +323,12 @@ impl Proxy {
             }
 
             self.runtime_status = RuntimeStatus::Debugging;
-            log!(LogSource::Proxy, "Message replay has finished successfuly");
+
+            log!(
+                LogSource::Proxy,
+                LogLevel::Verbose,
+                "Message replay has finished successfuly"
+            );
         }
 
         Ok(())

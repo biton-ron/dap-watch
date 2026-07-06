@@ -22,6 +22,14 @@ pub struct Cli {
 
     #[command(subcommand)]
     pub command: Option<Commands>,
+
+    /// Only prints LogLevel::Verbose and LogLevel::Default
+    #[arg(long, conflicts_with = "debug")]
+    pub verbose: bool,
+
+    /// All log levels are printed, including LogLevel::Debug
+    #[arg(long, conflicts_with = "verbose")]
+    pub debug: bool,
 }
 
 // Main
@@ -42,10 +50,6 @@ pub struct MainArgs {
     /// Build command override (overrides config file)
     #[arg(long)]
     pub build: Option<String>,
-
-    /// Verbose logging output
-    #[arg(long, short)]
-    pub verbose: bool,
 
     /// --stdio is specifically for launch mode, it allows IDEs to spawn dap-watch as child-process and communicate through stdin/out
     #[arg(long, conflicts_with_all = ["program", "port"])]

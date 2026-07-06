@@ -2,7 +2,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, bail};
 
-use crate::{log, logger::LogSource};
+use crate::{
+    log,
+    logger::{LogLevel, LogSource},
+};
 
 /// We only specify in this enum commands are required for state preservation.
 /// As an example - setBreakpoints is a crucial part of the state, and will be replayed to debuggers when re-spawned.
@@ -148,10 +151,10 @@ impl DapMessage {
     ///
     /// Body is assuemd to be a valid JSON buffer, if JSON parsing failed or DapMessage could not be constructed, and error would be returned instead.
     pub fn parse_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
-        // TODO: Make sure this is only printed on debug log level
         log!(
             LogSource::Proxy,
-            "Dap Message constructed: {:?}",
+            LogLevel::Debug,
+            "DAP message to parse: {:?}",
             str::from_utf8(body)
         );
 

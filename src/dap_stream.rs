@@ -1,6 +1,10 @@
 ///! This module is mainly for the DapStream struct, its implementation and all other supporting utlities.
 ///! DapStream is a wrapper around TcpStream that can read and parse buffers as DapMessage structures.
-use crate::{dap_message::DapMessage, log, logger::LogSource};
+use crate::{
+    dap_message::DapMessage,
+    log,
+    logger::{LogLevel, LogSource},
+};
 use anyhow::{Context, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -56,9 +60,9 @@ impl DapStream {
             self.buffer
                 .extend_from_slice(&next_buffer[..next_buffer_length]);
 
-            // TODO: Make sure this is only printed on debug log level
             log!(
                 LogSource::Proxy,
+                LogLevel::Debug,
                 "Buffer debug, current message: {:?}",
                 str::from_utf8(&self.buffer)
             );
