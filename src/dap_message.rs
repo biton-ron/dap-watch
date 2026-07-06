@@ -61,11 +61,7 @@ impl std::fmt::Display for DapMessage {
                 write!(formatter, "[SEQ: {}] DapMessage::Response", seq)
             }
             DapMessage::Request { command, seq, .. } => {
-                write!(
-                    formatter,
-                    "[SEQ: {}] DapMessage::Request | {:?}",
-                    seq, command
-                )
+                write!(formatter, "[SEQ: {}] DapMessage::Request | {:?}", seq, command)
             }
         }
     }
@@ -81,9 +77,7 @@ impl DapMessage {
     /// Extract the sequence nubmer from self
     pub fn seq(&self) -> u64 {
         match self {
-            DapMessage::Event { seq, .. }
-            | DapMessage::Request { seq, .. }
-            | DapMessage::Response { seq, .. } => *seq,
+            DapMessage::Event { seq, .. } | DapMessage::Request { seq, .. } | DapMessage::Response { seq, .. } => *seq,
         }
     }
 
@@ -125,8 +119,7 @@ impl DapMessage {
             RequestCommandTypes::SetBreakpoints(path) => {
                 serde_json::json!({ "breakpoints": [], "source": { "path": path } })
             }
-            RequestCommandTypes::SetFunctionBreakpoints
-            | RequestCommandTypes::SetExceptionBreakpoints => {
+            RequestCommandTypes::SetFunctionBreakpoints | RequestCommandTypes::SetExceptionBreakpoints => {
                 serde_json::json!({ "breakpoints": [] })
             }
             _ => bail!("Only breakpoints related commands are expected"),
@@ -180,9 +173,9 @@ impl DapMessage {
                     raw_bytes: Vec::from(full_message),
                     event: match event_type {
                         "output" => {
-                            let output = parsed_json["body"]["output"].as_str().context(
-                                "Parser could not find output on event with output type",
-                            )?;
+                            let output = parsed_json["body"]["output"]
+                                .as_str()
+                                .context("Parser could not find output on event with output type")?;
 
                             EventTypes::Output(String::from(output))
                         }
@@ -202,9 +195,9 @@ impl DapMessage {
                 })
             }
             "request" => {
-                let command_type_str = parsed_json["command"].as_str().context(
-                    "Could not parse request: a Request should have a command attached to it as a string",
-                )?;
+                let command_type_str = parsed_json["command"]
+                    .as_str()
+                    .context("Could not parse request: a Request should have a command attached to it as a string")?;
 
                 let command: RequestCommandTypes = match command_type_str {
                     "setBreakpoints" => {
@@ -265,8 +258,7 @@ mod tests {
 
     #[test]
     fn test_parse_body_set_breakpoints_missing_source_path_returns_error() {
-        let buffer =
-            r#"{"seq":1,"type":"request","command":"setBreakpoints","arguments":{}}"#.as_bytes();
+        let buffer = r#"{"seq":1,"type":"request","command":"setBreakpoints","arguments":{}}"#.as_bytes();
         let parsed = DapMessage::parse_body(buffer, buffer);
 
         assert!(parsed.is_err());
@@ -274,7 +266,9 @@ mod tests {
 
     #[test]
     fn test_parse_output_event_stdout() {
-        let buffer = r#"{"seq":1,"type":"event","event":"output","body":{"category":"stdout","output":"hello world\n"}}"#.as_bytes();
+        let buffer =
+            r#"{"seq":1,"type":"event","event":"output","body":{"category":"stdout","output":"hello world\n"}}"#
+                .as_bytes();
         let parsed = DapMessage::parse_body(buffer, buffer);
 
         match parsed {
@@ -322,8 +316,7 @@ mod tests {
 
     #[test]
     fn test_parse_output_event_missing_output_returns_error() {
-        let buffer =
-            r#"{"seq":1,"type":"event","event":"output","body":{"category":"stdout"}}"#.as_bytes();
+        let buffer = r#"{"seq":1,"type":"event","event":"output","body":{"category":"stdout"}}"#.as_bytes();
         let parsed = DapMessage::parse_body(buffer, buffer);
 
         assert!(parsed.is_err());

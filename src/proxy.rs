@@ -126,11 +126,7 @@ impl Proxy {
     }
 
     /// Intercept messages from both streaming sources and deal with forwarding and state management
-    async fn handle_streaming(
-        &mut self,
-        source: StreamSources,
-        message: Result<ReadResult>,
-    ) -> Result<()> {
+    async fn handle_streaming(&mut self, source: StreamSources, message: Result<ReadResult>) -> Result<()> {
         match message {
             Ok(ReadResult::EOF) => {
                 if source == StreamSources::Ide {
@@ -147,19 +143,15 @@ impl Proxy {
                 let (forward_stream, log_source) = match source {
                     StreamSources::Ide => {
                         if let Ok(Some(command)) = self.state.capture(&message) {
-                            log!(
-                                LogSource::Proxy,
-                                LogLevel::Debug,
-                                "State captured: {:?}",
-                                command
-                            );
+                            log!(LogSource::Proxy, LogLevel::Debug, "State captured: {:?}", command);
                         }
 
                         (&mut self.adapter_stream, LogSource::Ide)
                     }
                     StreamSources::Adapter => {
                         // While replaying state to a new debug adapter, we will suppress the messages coming back from the adapter.
-                        // The reason is simple - we don't want these messages to reach the IDE, as they were not actually requested on its behalf - the IDE is not aware of them.
+                        // The reason is simple - we don't want these messages to reach the IDE, as they were not actually requested
+                        // on its behalf - the IDE is not aware of them.
                         if self.runtime_status == RuntimeStatus::Replaying {
                             log!(
                                 LogSource::Adapter,
@@ -233,9 +225,7 @@ impl Proxy {
                         "Proxy is connected to debug adapter"
                     );
 
-                    self.replay_state()
-                        .await
-                        .context("Failed to replay messages")?;
+                    self.replay_state().await.context("Failed to replay messages")?;
                 } else if self.runtime_status == RuntimeStatus::Pending
                     && let RuntimeModes::Headless { .. } = self.config.runtime.mode
                 {
@@ -266,14 +256,15 @@ impl Proxy {
                     clear_sequence.push(DapMessage::clear_breakpoints(
                         RequestCommandTypes::SetExceptionBreakpoints,
                     )?);
+
                     clear_sequence.push(DapMessage::clear_breakpoints(
                         RequestCommandTypes::SetFunctionBreakpoints,
                     )?);
 
                     for file in self.state.get_breakpoints_file_paths() {
-                        clear_sequence.push(DapMessage::clear_breakpoints(
-                            RequestCommandTypes::SetBreakpoints(file.to_string()),
-                        )?);
+                        clear_sequence.push(DapMessage::clear_breakpoints(RequestCommandTypes::SetBreakpoints(
+                            file.to_string(),
+                        ))?);
                     }
 
                     // TODO: add to the sequence "continue" if app is currently breaking
@@ -312,10 +303,7 @@ impl Proxy {
 
                 if replay_sequence.len() > 0 {
                     for message in replay_sequence {
-                        stream
-                            .write(message)
-                            .await
-                            .context("Replaying a message has failed")?;
+                        stream.write(message).await.context("Replaying a message has failed")?;
                     }
 
                     return Ok(());
@@ -349,9 +337,7 @@ impl Proxy {
     }
 
     /// Wraps an optional build_handler as a standalone future, so it could be easily used in a select! arm
-    async fn await_build(
-        build_handler: &mut Option<JoinHandle<Result<ExitStatus>>>,
-    ) -> Result<ExitStatus> {
+    async fn await_build(build_handler: &mut Option<JoinHandle<Result<ExitStatus>>>) -> Result<ExitStatus> {
         match build_handler {
             Some(handler) => handler.await?,
             None => std::future::pending().await,

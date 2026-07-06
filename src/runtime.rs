@@ -79,9 +79,7 @@ impl Runtime {
 
     pub async fn spawn_program(&mut self) -> Result<()> {
         if let RuntimeModes::Headless {
-            program,
-            program_args,
-            ..
+            program, program_args, ..
         } = &self.config.mode
         {
             let mut child = Command::new(&program)
@@ -107,10 +105,7 @@ impl Runtime {
         if let Some(program) = &mut self.program {
             // Process may have already been killed by the adapter — only kill if still running.
             match program.try_wait() {
-                Ok(None) => program
-                    .kill()
-                    .await
-                    .context("Could not kill program's child process")?,
+                Ok(None) => program.kill().await.context("Could not kill program's child process")?,
                 Ok(Some(_)) => {}
                 Err(_) => {}
             }
@@ -133,9 +128,7 @@ impl Runtime {
     }
 
     pub async fn kill(&mut self) -> Result<()> {
-        self.kill_adapter()
-            .await
-            .context("Failed to kill debug adapter")?;
+        self.kill_adapter().await.context("Failed to kill debug adapter")?;
 
         self.kill_program().await.context("Can't kill program")?;
 
@@ -143,9 +136,7 @@ impl Runtime {
     }
 
     pub async fn connect(&mut self) -> Result<DapStream> {
-        let port = self
-            .adapter_port
-            .context("Could not find a port to connect to")?;
+        let port = self.adapter_port.context("Could not find a port to connect to")?;
         let mut errors_count = 0;
 
         loop {

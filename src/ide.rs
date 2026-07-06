@@ -31,8 +31,7 @@ impl IdeHandler {
     }
 
     pub async fn connect(&mut self) -> Result<DapStream, Error> {
-        let (reader, writer): (Box<dyn AsyncRead + Unpin>, Box<dyn AsyncWrite + Unpin>) = match self
-        {
+        let (reader, writer): (Box<dyn AsyncRead + Unpin>, Box<dyn AsyncWrite + Unpin>) = match self {
             Self::Tcp { listener } => {
                 let (stream, _) = listener.accept().await?;
                 let (r, w) = stream.into_split();

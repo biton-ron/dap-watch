@@ -40,18 +40,14 @@ impl ProxyState {
                 // breakpoints and the rest of the state is set, this way, no code execution will be missed.
                 RequestCommandTypes::Attach(arguments) => {
                     // TODO: Write a unit test for attach -> launch convertion
-                    self.launch =
-                        Some(DapMessage::launch(arguments).context(
-                            "Could not generate a launch message from the attach message",
-                        )?);
+                    self.launch = Some(
+                        DapMessage::launch(arguments)
+                            .context("Could not generate a launch message from the attach message")?,
+                    );
                 }
                 RequestCommandTypes::ConfigurationDone => self.configuration_done = Some(message),
-                RequestCommandTypes::SetExceptionBreakpoints => {
-                    self.exception_breakpoints = Some(message)
-                }
-                RequestCommandTypes::SetFunctionBreakpoints => {
-                    self.function_breakpoints = Some(message)
-                }
+                RequestCommandTypes::SetExceptionBreakpoints => self.exception_breakpoints = Some(message),
+                RequestCommandTypes::SetFunctionBreakpoints => self.function_breakpoints = Some(message),
                 RequestCommandTypes::SetBreakpoints(file_path) => {
                     self.breakpoints.insert(String::from(file_path), message);
                 }
@@ -142,10 +138,7 @@ mod test {
         let launch = make_request(3, RequestCommandTypes::Launch);
         let exception_breakpoints = make_request(4, RequestCommandTypes::SetExceptionBreakpoints);
         let function_breakpoints = make_request(5, RequestCommandTypes::SetFunctionBreakpoints);
-        let breakpoints = make_request(
-            6,
-            RequestCommandTypes::SetBreakpoints(String::from("testfile.rs")),
-        );
+        let breakpoints = make_request(6, RequestCommandTypes::SetBreakpoints(String::from("testfile.rs")));
         let configuration_done = make_request(7, RequestCommandTypes::ConfigurationDone);
 
         state.capture(&initialize).unwrap();
@@ -173,15 +166,9 @@ mod test {
     fn test_capture_set_breakpoints_different_files_coexist() {
         let mut state = ProxyState::default();
 
-        let file_a_breakpoints = make_request(
-            1,
-            RequestCommandTypes::SetBreakpoints(String::from("file_a.rs")),
-        );
+        let file_a_breakpoints = make_request(1, RequestCommandTypes::SetBreakpoints(String::from("file_a.rs")));
 
-        let file_b_breakpoints = make_request(
-            2,
-            RequestCommandTypes::SetBreakpoints(String::from("file_b.rs")),
-        );
+        let file_b_breakpoints = make_request(2, RequestCommandTypes::SetBreakpoints(String::from("file_b.rs")));
 
         state.capture(&file_a_breakpoints).unwrap();
         state.capture(&file_b_breakpoints).unwrap();
@@ -239,15 +226,9 @@ mod test {
         let mut state = ProxyState::default();
 
         let initialize = make_request(1, RequestCommandTypes::Initialize);
-        let breakpoints_a = make_request(
-            2,
-            RequestCommandTypes::SetBreakpoints(String::from("testfile_a.rs")),
-        );
+        let breakpoints_a = make_request(2, RequestCommandTypes::SetBreakpoints(String::from("testfile_a.rs")));
         let configuration_done = make_request(3, RequestCommandTypes::ConfigurationDone);
-        let breakpoints_b = make_request(
-            4,
-            RequestCommandTypes::SetBreakpoints(String::from("testfile_b.rs")),
-        );
+        let breakpoints_b = make_request(4, RequestCommandTypes::SetBreakpoints(String::from("testfile_b.rs")));
 
         state.capture(&initialize).unwrap();
         state.capture(&breakpoints_a).unwrap();
@@ -276,15 +257,9 @@ mod test {
         let launch = make_request(2, RequestCommandTypes::Launch);
         let exception_breakpoints = make_request(3, RequestCommandTypes::SetExceptionBreakpoints);
         let function_breakpoints = make_request(4, RequestCommandTypes::SetFunctionBreakpoints);
-        let breakpoints_a = make_request(
-            5,
-            RequestCommandTypes::SetBreakpoints(String::from("testfile_a.rs")),
-        );
+        let breakpoints_a = make_request(5, RequestCommandTypes::SetBreakpoints(String::from("testfile_a.rs")));
         let configuration_done = make_request(6, RequestCommandTypes::ConfigurationDone);
-        let breakpoints_b = make_request(
-            7,
-            RequestCommandTypes::SetBreakpoints(String::from("testfile_b.rs")),
-        );
+        let breakpoints_b = make_request(7, RequestCommandTypes::SetBreakpoints(String::from("testfile_b.rs")));
 
         state.capture(&initialize).unwrap();
         state.capture(&launch).unwrap();

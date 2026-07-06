@@ -20,10 +20,7 @@ pub enum ReadResult {
 }
 
 impl DapStream {
-    pub fn new(
-        reader: Box<dyn AsyncRead + Unpin>,
-        writer: Box<dyn AsyncWrite + Unpin>,
-    ) -> DapStream {
+    pub fn new(reader: Box<dyn AsyncRead + Unpin>, writer: Box<dyn AsyncWrite + Unpin>) -> DapStream {
         DapStream {
             reader,
             writer,
@@ -57,8 +54,7 @@ impl DapStream {
                 n => n,
             };
 
-            self.buffer
-                .extend_from_slice(&next_buffer[..next_buffer_length]);
+            self.buffer.extend_from_slice(&next_buffer[..next_buffer_length]);
 
             log!(
                 LogSource::Proxy,
@@ -127,8 +123,8 @@ impl DapStream {
             }
 
             let body = &buffer[body_start_index..body_end_index];
-            let parsed_message = DapMessage::parse_body(body, &buffer[0..body_end_index])
-                .context("Failed to parse DAP message body")?;
+            let parsed_message =
+                DapMessage::parse_body(body, &buffer[0..body_end_index]).context("Failed to parse DAP message body")?;
 
             // Anything in the buffer that did not belong to the parsed message is kept as leftovers (if any)
             let buffer_leftovers = if body_end_index == buffer.len() {
@@ -209,8 +205,7 @@ mod tests {
 
     #[test]
     fn test_parse_complete_response() {
-        let buffer =
-            wrap_with_headers(r#"{"seq":1,"type":"response","request_seq":15,"success":true}"#);
+        let buffer = wrap_with_headers(r#"{"seq":1,"type":"response","request_seq":15,"success":true}"#);
         let parsed = DapStream::parse_message(&buffer).unwrap();
 
         match parsed {
@@ -255,8 +250,7 @@ mod tests {
 
     #[test]
     fn test_parse_message_with_leftovers() {
-        let initial_message =
-            wrap_with_headers(r#"{"seq":500,"type":"request","command":"initialize"}"#);
+        let initial_message = wrap_with_headers(r#"{"seq":500,"type":"request","command":"initialize"}"#);
         let follow_up_message = wrap_with_headers(r#"{"seq":2,"type":"event","event":"stopped"}"#);
 
         // Buffer contains two messages at once, leftovers should include the follow up message
@@ -331,10 +325,7 @@ mod tests {
                         raw_bytes,
                     } => {
                         assert_eq!(seq, 1);
-                        assert_eq!(
-                            command,
-                            RequestCommandTypes::PassForward(String::from("continue"))
-                        );
+                        assert_eq!(command, RequestCommandTypes::PassForward(String::from("continue")));
                         assert_eq!(raw_bytes, buffer);
                     }
                     _ => panic!("Message type is expected to be a Request"),
