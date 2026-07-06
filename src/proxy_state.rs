@@ -41,7 +41,7 @@ impl ProxyState {
                 RequestCommandTypes::Attach(arguments) => {
                     // TODO: Write a unit test for attach -> launch convertion
                     self.launch = Some(
-                        DapMessage::launch(arguments)
+                        DapMessage::make_launch_request(arguments)
                             .context("Could not generate a launch message from the attach message")?,
                     );
                 }
@@ -51,7 +51,7 @@ impl ProxyState {
                 RequestCommandTypes::SetBreakpoints(file_path) => {
                     self.breakpoints.insert(String::from(file_path), message);
                 }
-                RequestCommandTypes::PassForward(_) => {}
+                RequestCommandTypes::Disconnect | RequestCommandTypes::PassForward(_) => {}
             }
 
             if !matches!(command, RequestCommandTypes::PassForward(_)) {

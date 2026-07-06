@@ -128,17 +128,45 @@ impl Proxy {
     /// Intercept messages from both streaming sources and deal with forwarding and state management
     async fn handle_streaming(&mut self, source: StreamSources, message: Result<ReadResult>) -> Result<()> {
         match message {
+            // Launch mode: IDE disconnect means full shutdown.
+            // Headless mode: program survives, only debug session ends.
             Ok(ReadResult::EOF) => {
                 if source == StreamSources::Ide {
                     match self.config.runtime.mode {
-                        RuntimeModes::Headless { .. } => {
-                            return self.handle_ide_disconnection().await;
-                        }
-                        // In launch mode - disconnection means shutting down dap-watch and the adapter altogether, only in headless mode the program survives IDE disconnection.
+                        RuntimeModes::Headless { .. } => return self.handle_ide_disconnection().await,
                         RuntimeModes::Launch => return self.graceful_shutdown().await,
                     }
                 }
             }
+            // Headless mode:
+            // 1. Intercept disconnect so the adapter stays alive.
+            // 2. Send a fake response to let the IDE close gracefully — the subsequent
+            // 3. EOF will trigger handle_ide_disconnection for cleanup (see the above arm for reference).
+            Ok(ReadResult::Message(DapMessage::Request {
+                seq,
+                command: RequestCommandTypes::Disconnect,
+                ..
+            })) if let RuntimeModes::Headless { .. } = self.config.runtime.mode => {
+                let response =
+                    DapMessage::make_acknowledgement_response(seq).context("Failed to create a response message")?;
+
+                log!(
+                    LogSource::Ide,
+                    LogLevel::Verbose,
+                    "Disconnect request from IDE intercepted, sending fake response"
+                );
+
+                if let Some(stream) = &mut self.ide_stream {
+                    stream
+                        .write(&response)
+                        .await
+                        .context("Could not write a message to a stream")?;
+                }
+
+                return Ok(());
+            }
+
+            // Forwarding logic
             Ok(ReadResult::Message(message)) => {
                 let (forward_stream, log_source) = match source {
                     StreamSources::Ide => {
@@ -149,9 +177,8 @@ impl Proxy {
                         (&mut self.adapter_stream, LogSource::Ide)
                     }
                     StreamSources::Adapter => {
-                        // While replaying state to a new debug adapter, we will suppress the messages coming back from the adapter.
-                        // The reason is simple - we don't want these messages to reach the IDE, as they were not actually requested
-                        // on its behalf - the IDE is not aware of them.
+                        // While replaying state to a new debug adapter, suppress responses — they
+                        // weren't requested by the IDE and shouldn't reach it.
                         if self.runtime_status == RuntimeStatus::Replaying {
                             log!(
                                 LogSource::Adapter,
@@ -165,7 +192,7 @@ impl Proxy {
                                 log!(
                                     LogSource::Proxy,
                                     LogLevel::Debug,
-                                    "Message replay has finished successfuly"
+                                    "Message replay has finished successfully"
                                 );
                             }
 
@@ -176,7 +203,7 @@ impl Proxy {
                     }
                 };
 
-                // Forward logic is simple - as long as the forward target is alive (IDE/Adapter), and we're not suppressing messages (during replay) -> write to target.
+                // Forward to the other side — as long as the target stream is alive and we're not suppressing (replay).
                 if let Some(forward_stream) = forward_stream {
                     forward_stream
                         .write(&message)
@@ -267,7 +294,9 @@ impl Proxy {
                         ))?);
                     }
 
-                    // TODO: add to the sequence "continue" if app is currently breaking
+                    // After clearing all breakpoints, the final message would be "continue" to resume execution on all threads.
+                    clear_sequence
+                        .push(DapMessage::make_continue_request().context("Could not create a continue request")?);
 
                     for message in clear_sequence {
                         stream

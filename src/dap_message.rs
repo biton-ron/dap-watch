@@ -22,6 +22,7 @@ pub enum RequestCommandTypes {
     SetExceptionBreakpoints,
     SetFunctionBreakpoints,
     ConfigurationDone,
+    Disconnect,
     /// Fallback for all other command types
     PassForward(String),
 }
@@ -92,13 +93,46 @@ impl DapMessage {
         SEQ_COUNTER.fetch_add(1, Ordering::Relaxed)
     }
 
-    /// Construct a launch message (DapMessage::Request with RequestCommandTypes::Launch).
-    pub fn launch(arguments: &serde_json::Value) -> Result<DapMessage> {
+    /// Construct a launch message with the provided list of arguments
+    pub fn make_launch_request(arguments: &serde_json::Value) -> Result<DapMessage> {
         let json = serde_json::json!({
             "seq": Self::get_next_seq(),
             "type": "request",
             "command": "launch",
             "arguments": arguments
+        });
+
+        let body = json.to_string();
+
+        Self::from_str(&body)
+    }
+
+    /// Construct a "continue" request, continue explicitly is intended to resume (continue) execution on all threads.
+    pub fn make_continue_request() -> Result<DapMessage> {
+        let json = serde_json::json!({
+            "seq": Self::get_next_seq(),
+            "type": "request",
+            "command": "continue",
+            "arguments": {
+                "threadId": 0,
+                // Explicit to make sure we resume all threads.
+                // The reason this is important is the use case - we only build a "continue" message when IDE disconnects and we want to make sure debugging is paused.
+                // We release all breakpoints and then send this request, which will resume execution on all threads if any was paused.
+                "singleThread": false,
+            }
+        });
+
+        let body = json.to_string();
+
+        Self::from_str(&body)
+    }
+
+    /// Construct a response without a body for the provided request_sec, this is only a good fit for "fake" responses when there is no "body" required.
+    pub fn make_acknowledgement_response(request_seq: u64) -> Result<DapMessage> {
+        let json = serde_json::json!({
+            "seq": Self::get_next_seq(),
+            "request_seq": request_seq,
+            "type": "response",
         });
 
         let body = json.to_string();
@@ -213,6 +247,7 @@ impl DapMessage {
                     "launch" => RequestCommandTypes::Launch,
                     "attach" => RequestCommandTypes::Attach(parsed_json["arguments"].clone()),
                     "configurationDone" => RequestCommandTypes::ConfigurationDone,
+                    "disconnect" => RequestCommandTypes::Disconnect,
                     _ => RequestCommandTypes::PassForward(String::from(command_type_str)),
                 };
 
