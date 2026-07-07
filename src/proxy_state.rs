@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use crate::dap_message::{
     DapMessage::{self},
@@ -43,10 +43,7 @@ impl ProxyState {
                     // breakpoints and the rest of the state is set, this way, no code execution will be missed.
                     RequestCommandTypes::Attach(arguments) => {
                         // TODO: Write a unit test for attach -> launch convertion
-                        self.launch = Some(
-                            DapMessage::make_launch_request(&arguments)
-                                .context("Could not generate a launch message from the attach message")?,
-                        );
+                        self.launch = Some(DapMessage::make_launch_request(&arguments));
                     }
                     RequestCommandTypes::ConfigurationDone => self.configuration_done = Some(stored_message),
                     RequestCommandTypes::SetExceptionBreakpoints => self.exception_breakpoints = Some(stored_message),

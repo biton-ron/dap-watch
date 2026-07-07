@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, bail};
-use serde_json::{Number, Value};
 
 use crate::{
     dap_stream::{HEADER_DELIMITER, HEADER_DELIMITER_LENGTH},
@@ -131,7 +130,7 @@ impl DapMessage {
     }
 
     /// Construct a launch message with the provided list of arguments
-    pub fn make_launch_request(arguments: &serde_json::Value) -> Result<DapMessage> {
+    pub fn make_launch_request(arguments: &serde_json::Value) -> DapMessage {
         let json = serde_json::json!({
             "seq": Self::get_next_seq(),
             "type": "request",
@@ -141,11 +140,11 @@ impl DapMessage {
 
         let body = json.to_string();
 
-        Self::from_str(&body)
+        Self::from_str(&body).expect("Expected a DapMessage to be parsed from a valid JSON message")
     }
 
     /// Construct a "continue" request, continue explicitly is intended to resume (continue) execution on all threads.
-    pub fn make_continue_request() -> Result<DapMessage> {
+    pub fn make_continue_request() -> DapMessage {
         let json = serde_json::json!({
             "seq": Self::get_next_seq(),
             "type": "request",
@@ -161,11 +160,11 @@ impl DapMessage {
 
         let body = json.to_string();
 
-        Self::from_str(&body)
+        Self::from_str(&body).expect("Expected a DapMessage to be parsed from a valid JSON message")
     }
 
     /// Construct a response without a body for the provided request_sec, this is only a good fit for "fake" responses when there is no "body" required.
-    pub fn make_acknowledgement_response(request_seq: u64) -> Result<DapMessage> {
+    pub fn make_acknowledgement_response(request_seq: u64) -> DapMessage {
         let json = serde_json::json!({
             "seq": Self::get_next_seq(),
             "request_seq": request_seq,
@@ -174,11 +173,11 @@ impl DapMessage {
 
         let body = json.to_string();
 
-        Self::from_str(&body)
+        Self::from_str(&body).expect("Expected a DapMessage to be parsed from a valid JSON message")
     }
 
     /// Construct an output message
-    pub fn make_output_event(output: &str) -> Result<DapMessage> {
+    pub fn make_output_event(output: &str) -> DapMessage {
         let json = serde_json::json!({
             "seq": Self::get_next_seq(),
             "type": "event",
@@ -190,7 +189,7 @@ impl DapMessage {
 
         let body = json.to_string();
 
-        Self::from_str(&body)
+        Self::from_str(&body).expect("Expected a DapMessage to be parsed from a valid JSON message")
     }
 
     /// Construct a launch message (DapMessage::Request with RequestCommandTypes::Launch).

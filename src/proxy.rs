@@ -240,8 +240,7 @@ impl Proxy {
 
                 // In all other cases, we just send an aknowledgement response
                 _ => {
-                    let response = DapMessage::make_acknowledgement_response(message.seq())
-                        .context("Failed to create a response message")?;
+                    let response = DapMessage::make_acknowledgement_response(message.seq());
 
                     stream
                         .write(&response)
@@ -362,8 +361,7 @@ impl Proxy {
                     }
 
                     // After clearing all breakpoints, the final message would be "continue" to resume execution on all threads.
-                    clear_sequence
-                        .push(DapMessage::make_continue_request().context("Could not create a continue request")?);
+                    clear_sequence.push(DapMessage::make_continue_request());
 
                     for message in clear_sequence {
                         stream
@@ -429,7 +427,7 @@ impl Proxy {
 
         if let Some(stream) = &mut self.ide_stream {
             let output = format!("{}\n", message);
-            let message = DapMessage::make_output_event(&output).context("Could not create an output event")?;
+            let message = DapMessage::make_output_event(&output);
 
             stream
                 .write(&message)
