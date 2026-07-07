@@ -176,6 +176,7 @@ impl Runtime {
         tokio::spawn(async {
             // Execute the build command configured by the user
             shell(build_cmd)
+                .kill_on_drop(true)
                 .status()
                 .await
                 .context("Proxy has failed re-building the program")

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 
 use crate::dap_message::{
-    DapMessage::{self, Request},
+    DapMessage::{self},
     RequestCommandTypes,
 };
 
@@ -19,44 +19,59 @@ pub struct ProxyState {
     exception_breakpoints: Option<DapMessage>,
     breakpoints: HashMap<String, DapMessage>, // Hashed by file path
     last_replayed_seq: Option<u64>,
+
+    /// Captured initialize response, faked back to IDE on headless reconnect.
+    initialize_response: Option<DapMessage>,
 }
 
 impl ProxyState {
     /// Captures relevant IDE messages into debug state for replay.
-    /// Returns the command type if state was updated, `None` otherwise.
-    pub fn capture(&mut self, message: &DapMessage) -> Result<Option<RequestCommandTypes>> {
-        // Only requests have some effect on the state
-        if let Request { command, .. } = message {
-            let message = message.clone();
+    /// Returns the message back if state was affected, `None` otherwise.
+    pub fn capture(&mut self, message: &DapMessage) -> Result<Option<DapMessage>> {
+        match message {
+            DapMessage::Request { command, .. } => {
+                let stored_message = message.clone();
 
-            match command {
-                RequestCommandTypes::Initialize => self.initialize = Some(message),
-                RequestCommandTypes::Launch => self.launch = Some(message),
+                match &command {
+                    RequestCommandTypes::Initialize => self.initialize = Some(stored_message),
+                    RequestCommandTypes::Launch => self.launch = Some(stored_message),
 
-                // When recieveing an "attach" request from the IDE, it means we're in ::Headless mode.
-                // Which means that only the very-first "attach" request is sent as it-is to the adapter.
-                // But in cases of rebuild, we're transforming that attach into a "launch" request, since
-                // there is no process to attach to, and we want to make sure that the program starts after
-                // breakpoints and the rest of the state is set, this way, no code execution will be missed.
-                RequestCommandTypes::Attach(arguments) => {
-                    // TODO: Write a unit test for attach -> launch convertion
-                    self.launch = Some(
-                        DapMessage::make_launch_request(arguments)
-                            .context("Could not generate a launch message from the attach message")?,
-                    );
+                    // When recieveing an "attach" request from the IDE, it means we're in ::Headless mode.
+                    // Which means that only the very-first "attach" request is sent as it-is to the adapter.
+                    // But in cases of rebuild, we're transforming that attach into a "launch" request, since
+                    // there is no process to attach to, and we want to make sure that the program starts after
+                    // breakpoints and the rest of the state is set, this way, no code execution will be missed.
+                    RequestCommandTypes::Attach(arguments) => {
+                        // TODO: Write a unit test for attach -> launch convertion
+                        self.launch = Some(
+                            DapMessage::make_launch_request(&arguments)
+                                .context("Could not generate a launch message from the attach message")?,
+                        );
+                    }
+                    RequestCommandTypes::ConfigurationDone => self.configuration_done = Some(stored_message),
+                    RequestCommandTypes::SetExceptionBreakpoints => self.exception_breakpoints = Some(stored_message),
+                    RequestCommandTypes::SetFunctionBreakpoints => self.function_breakpoints = Some(stored_message),
+                    RequestCommandTypes::SetBreakpoints(file_path) => {
+                        self.breakpoints.insert(String::from(file_path), stored_message);
+                    }
+                    RequestCommandTypes::Disconnect | RequestCommandTypes::PassForward(_) => {}
                 }
-                RequestCommandTypes::ConfigurationDone => self.configuration_done = Some(message),
-                RequestCommandTypes::SetExceptionBreakpoints => self.exception_breakpoints = Some(message),
-                RequestCommandTypes::SetFunctionBreakpoints => self.function_breakpoints = Some(message),
-                RequestCommandTypes::SetBreakpoints(file_path) => {
-                    self.breakpoints.insert(String::from(file_path), message);
-                }
-                RequestCommandTypes::Disconnect | RequestCommandTypes::PassForward(_) => {}
-            }
 
-            if !matches!(command, RequestCommandTypes::PassForward(_)) {
-                return Ok(Some(command.clone()));
+                if !matches!(command, RequestCommandTypes::PassForward(_)) {
+                    return Ok(Some(message.clone()));
+                }
             }
+            DapMessage::Response { request_seq, .. } => {
+                // We're only storing the response that matches the initialize request.
+                // This response will be used to properly allow re-connection from IDE on live debugging session (in headless mode).
+                if let Some(initialize) = &self.initialize
+                    && initialize.seq() == *request_seq
+                {
+                    self.initialize_response = Some(message.clone());
+                    return Ok(Some(message.clone()));
+                }
+            }
+            DapMessage::Event { .. } => {}
         }
 
         Ok(None)

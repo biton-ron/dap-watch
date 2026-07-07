@@ -120,6 +120,7 @@ impl Proxy {
                 result = Proxy::await_build(&mut self.build_handle), if self.runtime_status == RuntimeStatus::Building => {
                     match result {
                         Ok(status) => {
+                            self.build_handle = None;
                             self.runtime_status = match status.success() {
                                 true => RuntimeStatus::Pending, // Success - next loop iteration will spawn a new process.
                                 false => RuntimeStatus::BuildingFailed // Build failed, another attempt on the next file change.
@@ -149,28 +150,40 @@ impl Proxy {
             // 1. Intercept disconnect so the adapter stays alive.
             // 2. Send a fake response to let the IDE close gracefully — the subsequent
             // 3. EOF will trigger handle_ide_disconnection for cleanup (see the above arm for reference).
-            Ok(ReadResult::Message(DapMessage::Request {
-                seq,
-                command: RequestCommandTypes::Disconnect,
-                ..
-            })) if let RuntimeModes::Headless { .. } = self.config.runtime.mode => {
-                let response =
-                    DapMessage::make_acknowledgement_response(seq).context("Failed to create a response message")?;
+            Ok(ReadResult::Message(
+                message @ DapMessage::Request {
+                    command: RequestCommandTypes::Disconnect,
+                    ..
+                },
+            )) if let RuntimeModes::Headless { .. } = self.config.runtime.mode => {
+                return self.absorb_ide_requests(message).await;
+            }
 
-                log!(
-                    LogSource::Ide,
-                    LogLevel::Verbose,
-                    "Disconnect request from IDE intercepted, sending fake response"
-                );
-
-                if let Some(stream) = &mut self.ide_stream {
-                    stream
-                        .write(&response)
-                        .await
-                        .context("Could not write a message to a stream")?;
-                }
-
-                return Ok(());
+            Ok(ReadResult::Message(
+                message @ DapMessage::Request {
+                    command: RequestCommandTypes::Initialize,
+                    ..
+                },
+            ))
+            | Ok(ReadResult::Message(
+                message @ DapMessage::Request {
+                    command: RequestCommandTypes::Attach(_),
+                    ..
+                },
+            ))
+            | Ok(ReadResult::Message(
+                message @ DapMessage::Request {
+                    command: RequestCommandTypes::Launch,
+                    ..
+                },
+            ))
+            | Ok(ReadResult::Message(
+                message @ DapMessage::Request {
+                    command: RequestCommandTypes::ConfigurationDone,
+                    ..
+                },
+            )) if let RuntimeStatus::Debugging = self.runtime_status => {
+                return self.absorb_ide_requests(message).await;
             }
 
             // Forwarding logic
@@ -221,6 +234,30 @@ impl Proxy {
                 }
             }
             Err(e) => bail!(e),
+        }
+
+        Ok(())
+    }
+
+    ///
+    async fn absorb_ide_requests(&mut self, message: DapMessage) -> Result<()> {
+        if let RuntimeModes::Headless { .. } = self.config.runtime.mode {
+            let response = DapMessage::make_acknowledgement_response(message.seq())
+                .context("Failed to create a response message")?;
+
+            log!(
+                LogSource::Ide,
+                LogLevel::Verbose,
+                "{} request from IDE intercepted, sending fake response",
+                message
+            );
+
+            if let Some(stream) = &mut self.ide_stream {
+                stream
+                    .write(&response)
+                    .await
+                    .context("Could not write a message to a stream")?;
+            }
         }
 
         Ok(())
@@ -385,6 +422,10 @@ impl Proxy {
     /// main proxy loop until completed.
     async fn rebuild(&mut self) -> Result<()> {
         self.runtime.kill().await?;
+
+        if let Some(handle) = &mut self.build_handle {
+            handle.abort();
+        }
 
         self.needs_replay = true;
         self.adapter_stream = None;
