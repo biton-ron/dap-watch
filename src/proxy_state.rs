@@ -79,7 +79,12 @@ impl ProxyState {
 
     /// Get breakpoints file list
     pub fn get_breakpoints_file_paths(&self) -> Vec<&String> {
-        return self.breakpoints.keys().collect();
+        self.breakpoints.keys().collect()
+    }
+
+    /// Captured initialize response, faked back to IDE on headless reconnect
+    pub fn get_initialize_response(&self) -> Option<&DapMessage> {
+        self.initialize_response.as_ref()
     }
 
     /// Bring state back to its default values

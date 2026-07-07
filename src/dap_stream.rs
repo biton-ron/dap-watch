@@ -140,8 +140,8 @@ impl DapStream {
     }
 }
 
-const HEADER_DELIMITER: &[u8] = b"\r\n\r\n";
-const HEADER_DELIMITER_LENGTH: usize = 4;
+pub const HEADER_DELIMITER: &[u8] = b"\r\n\r\n";
+pub const HEADER_DELIMITER_LENGTH: usize = 4;
 
 #[cfg(test)]
 mod tests {

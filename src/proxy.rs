@@ -146,44 +146,11 @@ impl Proxy {
                     }
                 }
             }
-            // Headless mode:
-            // 1. Intercept disconnect so the adapter stays alive.
-            // 2. Send a fake response to let the IDE close gracefully — the subsequent
-            // 3. EOF will trigger handle_ide_disconnection for cleanup (see the above arm for reference).
-            Ok(ReadResult::Message(
-                message @ DapMessage::Request {
-                    command: RequestCommandTypes::Disconnect,
-                    ..
-                },
-            )) if let RuntimeModes::Headless { .. } = self.config.runtime.mode => {
-                return self.absorb_ide_requests(message).await;
-            }
 
-            Ok(ReadResult::Message(
-                message @ DapMessage::Request {
-                    command: RequestCommandTypes::Initialize,
-                    ..
-                },
-            ))
-            | Ok(ReadResult::Message(
-                message @ DapMessage::Request {
-                    command: RequestCommandTypes::Attach(_),
-                    ..
-                },
-            ))
-            | Ok(ReadResult::Message(
-                message @ DapMessage::Request {
-                    command: RequestCommandTypes::Launch,
-                    ..
-                },
-            ))
-            | Ok(ReadResult::Message(
-                message @ DapMessage::Request {
-                    command: RequestCommandTypes::ConfigurationDone,
-                    ..
-                },
-            )) if let RuntimeStatus::Debugging = self.runtime_status => {
-                return self.absorb_ide_requests(message).await;
+            // When a message from the IDE needs to be absorbed by the proxy - the adapter will never see the message (forward is blocked),
+            // and at the same time we also need to fake the response to the IDE, so the IDE does not suspect anything.
+            Ok(ReadResult::Message(message)) if self.should_absorb_request(&message) => {
+                return self.fake_adapter_response(message).await;
             }
 
             // Forwarding logic
@@ -239,28 +206,84 @@ impl Proxy {
         Ok(())
     }
 
-    ///
-    async fn absorb_ide_requests(&mut self, message: DapMessage) -> Result<()> {
-        if let RuntimeModes::Headless { .. } = self.config.runtime.mode {
-            let response = DapMessage::make_acknowledgement_response(message.seq())
-                .context("Failed to create a response message")?;
+    /// Sends a fake response on behalf of the adapter, based on the received message from the IDE.
+    async fn fake_adapter_response(&mut self, message: DapMessage) -> Result<()> {
+        log!(
+            LogSource::Ide,
+            LogLevel::Verbose,
+            "{} request from IDE absorbed, sending fake response",
+            message
+        );
 
-            log!(
-                LogSource::Ide,
-                LogLevel::Verbose,
-                "{} request from IDE intercepted, sending fake response",
-                message
-            );
+        if let Some(stream) = &mut self.ide_stream {
+            match message {
+                // Specifically for Initialize we want a differnet behavior:
+                // 1. Instead of generic "acknowledgement" response, we send the response to the first "initialize" request the IDE made in this session.
+                // 2. On top of the response message, we also send an "Initialized" event message, to let the IDE know the adapter is ready for the rest of configuration.
+                DapMessage::Request {
+                    seq,
+                    command: RequestCommandTypes::Initialize,
+                    ..
+                } => {
+                    if let Some(response) = self.state.get_initialize_response() {
+                        // We clone the response to the original "initiate" request, and making sure it's "request_seq" is the new request's seq.
+                        let response = response.clone_with_new_seq(Some(seq));
 
-            if let Some(stream) = &mut self.ide_stream {
-                stream
-                    .write(&response)
-                    .await
-                    .context("Could not write a message to a stream")?;
-            }
+                        stream
+                            .write(&response)
+                            .await
+                            .context("Could not write a message to a stream")?;
+
+                        // TODO: Send "initialized" event at this point.
+                    }
+                }
+
+                // In all other cases, we just send an aknowledgement response
+                _ => {
+                    let response = DapMessage::make_acknowledgement_response(message.seq())
+                        .context("Failed to create a response message")?;
+
+                    stream
+                        .write(&response)
+                        .await
+                        .context("Could not write a message to a stream")?;
+                }
+            };
         }
 
         Ok(())
+    }
+
+    /// Determines weither a message coming from the IDE shoudld be forwarded to the adapter, or weither we would like the adapter to not know about this message.
+    fn should_absorb_request(&self, message: &DapMessage) -> bool {
+        if let RuntimeModes::Headless { .. } = &self.config.runtime.mode {
+            return match message {
+                // Intercept disconnect so the adapter stays alive.
+                // A fake response lets the IDE close gracefully, then the subsequent EOF triggers handle_ide_disconnection for cleanup.
+                DapMessage::Request {
+                    command: RequestCommandTypes::Disconnect,
+                    ..
+                } => true,
+
+                // If one of the following requests were received from the IDE, while runtime status is ::Debugging
+                // it can only mean one thing - the IDE is in the process of re-connection (which is different than
+                // initial connection), we know it is re-connection because the first-connection is what started the
+                // debug session, when these messages are coming in the first time, runtime is still in ::Spawned or
+                // ::Pending status, and in that case, all messages should be forwarded normally (not absorbed).
+                DapMessage::Request {
+                    command:
+                        RequestCommandTypes::Initialize
+                        | RequestCommandTypes::Attach(_)
+                        | RequestCommandTypes::Launch
+                        | RequestCommandTypes::ConfigurationDone,
+                    ..
+                } if self.runtime_status == RuntimeStatus::Debugging => true,
+
+                _ => false,
+            };
+        }
+
+        false
     }
 
     /// Starts the runtime based on current state and mode.

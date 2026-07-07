@@ -1,8 +1,10 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, bail};
+use serde_json::{Number, Value};
 
 use crate::{
+    dap_stream::{HEADER_DELIMITER, HEADER_DELIMITER_LENGTH},
     log,
     logger::{LogLevel, LogSource},
 };
@@ -91,6 +93,41 @@ impl DapMessage {
     /// Get the next sequence and bump its value
     fn get_next_seq() -> u64 {
         SEQ_COUNTER.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn get_raw_bytes(&self) -> &Vec<u8> {
+        match self {
+            DapMessage::Event { raw_bytes, .. }
+            | DapMessage::Request { raw_bytes, .. }
+            | DapMessage::Response { raw_bytes, .. } => raw_bytes,
+        }
+    }
+
+    /// Clone a DapMessage and assigns a new seq id to the cloned instance
+    /// - `request_seq`:  Only acceptable when the original message is a `DapMessage::Response`.
+    pub fn clone_with_new_seq(&self, request_seq: Option<u64>) -> DapMessage {
+        let raw_bytes = self.get_raw_bytes();
+        let new_line_index = raw_bytes
+            .windows(HEADER_DELIMITER_LENGTH)
+            .position(|w| w == HEADER_DELIMITER)
+            .expect("Header delimeter is always expected in a message raw_bytes as DapMessage was originally constructed from it");
+
+        let json_part = &raw_bytes[new_line_index + HEADER_DELIMITER_LENGTH..];
+        let mut parsed_json: serde_json::Value = serde_json::from_slice(json_part)
+            .expect("a DapMessage's body is expected to parse as it was already parsed before");
+
+        parsed_json["seq"] = serde_json::Value::from(Self::get_next_seq());
+
+        // If provided, and if message is a Response, recieved request_sec will override the original one.
+        if let Some(request_seq) = request_seq
+            && let DapMessage::Response { .. } = self
+        {
+            parsed_json["request_seq"] = serde_json::Value::from(request_seq);
+        }
+
+        let body = parsed_json.to_string();
+
+        Self::from_str(&body).expect("Construction of a DapMessage on the same data structure is not expected to fail")
     }
 
     /// Construct a launch message with the provided list of arguments
