@@ -28,9 +28,26 @@ pub enum RequestCommandTypes {
     PassForward(String),
 }
 
+impl RequestCommandTypes {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Initialize => "initialize",
+            Self::Launch => "launch",
+            Self::Attach(_) => "attach",
+            Self::SetBreakpoints(_) => "setBreakpoints",
+            Self::SetFunctionBreakpoints => "setFunctionBreakpoints",
+            Self::SetExceptionBreakpoints => "setExceptionBreakpoints",
+            Self::ConfigurationDone => "configurationDone",
+            Self::Disconnect => "disconnect",
+            Self::PassForward(name) => name,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum EventTypes {
     Output(String),
+    Capabilities,
     Other(String),
 }
 
@@ -59,8 +76,17 @@ impl std::fmt::Display for DapMessage {
             DapMessage::Event { event, seq, .. } => {
                 write!(formatter, "[SEQ: {}] DapMessage::Event | {:?}", seq, event)
             }
-            DapMessage::Response { seq, .. } => {
-                write!(formatter, "[SEQ: {}] DapMessage::Response", seq)
+            DapMessage::Response {
+                seq,
+                request_seq,
+                raw_bytes,
+                ..
+            } => {
+                write!(
+                    formatter,
+                    "[SEQ: {}, REQ_SEQ: {}] DapMessage::Response",
+                    seq, request_seq
+                )
             }
             DapMessage::Request { command, seq, .. } => {
                 write!(formatter, "[SEQ: {}] DapMessage::Request | {:?}", seq, command)
@@ -143,6 +169,19 @@ impl DapMessage {
         Self::from_str(&body).expect("Expected a DapMessage to be parsed from a valid JSON message")
     }
 
+    /// Construct a launch message with the provided list of arguments
+    pub fn make_initialized_event() -> DapMessage {
+        let json = serde_json::json!({
+            "seq": Self::get_next_seq(),
+            "type": "event",
+            "event": "initialized"
+        });
+
+        let body = json.to_string();
+
+        Self::from_str(&body).expect("Expected a DapMessage to be parsed from a valid JSON message")
+    }
+
     /// Construct a "continue" request, continue explicitly is intended to resume (continue) execution on all threads.
     pub fn make_continue_request() -> DapMessage {
         let json = serde_json::json!({
@@ -164,11 +203,13 @@ impl DapMessage {
     }
 
     /// Construct a response without a body for the provided request_sec, this is only a good fit for "fake" responses when there is no "body" required.
-    pub fn make_acknowledgement_response(request_seq: u64) -> DapMessage {
+    pub fn make_response(request_seq: u64, command: &str) -> DapMessage {
         let json = serde_json::json!({
             "seq": Self::get_next_seq(),
             "request_seq": request_seq,
             "type": "response",
+            "command": command,
+            "success": true,
         });
 
         let body = json.to_string();
@@ -230,13 +271,6 @@ impl DapMessage {
     ///
     /// Body is assuemd to be a valid JSON buffer, if JSON parsing failed or DapMessage could not be constructed, and error would be returned instead.
     pub fn parse_body(body: &[u8], full_message: &[u8]) -> Result<DapMessage> {
-        log!(
-            LogSource::Proxy,
-            LogLevel::Debug,
-            "DAP message to parse: {:?}",
-            str::from_utf8(body)
-        );
-
         let parsed_json: serde_json::Value =
             serde_json::from_slice(body).context("Could not parse DAP message: Invalid JSON")?;
 
@@ -265,6 +299,7 @@ impl DapMessage {
 
                             EventTypes::Output(String::from(output))
                         }
+                        "capabilities" => EventTypes::Capabilities,
                         _ => EventTypes::Other(String::from(event_type)),
                     },
                 })

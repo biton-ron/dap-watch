@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use crate::dap_message::{
     DapMessage::{self},
-    RequestCommandTypes,
+    EventTypes, RequestCommandTypes,
 };
 
 #[derive(Default, Debug)]
@@ -20,18 +20,21 @@ pub struct ProxyState {
     breakpoints: HashMap<String, DapMessage>, // Hashed by file path
     last_replayed_seq: Option<u64>,
 
-    /// Captured initialize response, faked back to IDE on headless reconnect.
+    /// Captured "initialize" response, faked back to IDE on headless reconnect.
     initialize_response: Option<DapMessage>,
+
+    /// Captured "capabitiles" event, faked back to IDE on headless reconnect.
+    capabilities_event: Option<DapMessage>,
 }
 
 impl ProxyState {
     /// Captures relevant IDE messages into debug state for replay.
     /// Returns the message back if state was affected, `None` otherwise.
     pub fn capture(&mut self, message: &DapMessage) -> Result<Option<DapMessage>> {
+        let stored_message = message.clone();
+
         match message {
             DapMessage::Request { command, .. } => {
-                let stored_message = message.clone();
-
                 match &command {
                     RequestCommandTypes::Initialize => self.initialize = Some(stored_message),
                     RequestCommandTypes::Launch => self.launch = Some(stored_message),
@@ -64,11 +67,18 @@ impl ProxyState {
                 if let Some(initialize) = &self.initialize
                     && initialize.seq() == *request_seq
                 {
-                    self.initialize_response = Some(message.clone());
+                    self.initialize_response = Some(stored_message);
                     return Ok(Some(message.clone()));
                 }
             }
-            DapMessage::Event { .. } => {}
+            DapMessage::Event {
+                event: EventTypes::Capabilities,
+                ..
+            } => {
+                self.capabilities_event = Some(stored_message);
+                return Ok(Some(message.clone()));
+            }
+            _ => {}
         }
 
         Ok(None)
@@ -84,9 +94,18 @@ impl ProxyState {
         self.initialize_response.as_ref()
     }
 
-    /// Bring state back to its default values
-    pub fn clear(&mut self) {
+    /// Captured capabilities event, faked back to IDE on headless reconnect
+    pub fn get_capabilities_event(&self) -> Option<&DapMessage> {
+        self.capabilities_event.as_ref()
+    }
+
+    /// Resets all captured state except the initialize response, which is needed to fake responses on IDE reconnect.
+    pub fn reset(&mut self) {
+        let initialize_response = self.initialize_response.take();
+        let capabilities_event = self.capabilities_event.take();
         *self = Self::default();
+        self.initialize_response = initialize_response;
+        self.capabilities_event = capabilities_event;
     }
 
     /// Produces a sequence of DapMessage to be sent to the adapter when its respawned, based on the proxy state.

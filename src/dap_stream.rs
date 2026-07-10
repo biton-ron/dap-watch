@@ -55,13 +55,6 @@ impl DapStream {
             };
 
             self.buffer.extend_from_slice(&next_buffer[..next_buffer_length]);
-
-            log!(
-                LogSource::Proxy,
-                LogLevel::Debug,
-                "Buffer debug, current message: {:?}",
-                str::from_utf8(&self.buffer)
-            );
         }
     }
 

@@ -44,6 +44,7 @@ pub struct Proxy {
     runtime: Runtime,
     runtime_status: RuntimeStatus,
     adapter_stream: Option<DapStream>,
+    is_adapter_initialized: bool,
     build_handle: Option<JoinHandle<Result<ExitStatus>>>,
     needs_replay: bool,
 
@@ -65,6 +66,7 @@ impl Proxy {
             ide_status: IdeStatus::Listening,
             runtime: Runtime::new(&config.runtime),
             adapter_stream: None,
+            is_adapter_initialized: false,
             runtime_status: RuntimeStatus::Pending,
             build_handle: None,
             needs_replay: false,
@@ -155,14 +157,24 @@ impl Proxy {
 
             // Forwarding logic
             Ok(ReadResult::Message(message)) => {
-                let (forward_stream, log_source) = match source {
-                    StreamSources::Ide => {
-                        if let Ok(Some(command)) = self.state.capture(&message) {
-                            log!(LogSource::Proxy, LogLevel::Debug, "State captured: {:?}", command);
-                        }
+                // ConfigurationDone marks the final request in the configuration sequence from the IDE.
+                // is_adapter_initialized=true until a new adapter is launched during rebuild.
+                // The point is that if the IDE re-connects while the current adapter is still alive,
+                // we will be able to tell that there is no need for another configuration sequence and these requests will be abosrbed.
+                if let DapMessage::Request {
+                    command: RequestCommandTypes::ConfigurationDone,
+                    ..
+                } = message
+                {
+                    self.is_adapter_initialized = true;
+                }
 
-                        (&mut self.adapter_stream, LogSource::Ide)
-                    }
+                if let Ok(Some(command)) = self.state.capture(&message) {
+                    log!(LogSource::Proxy, LogLevel::Debug, "State captured: {}", command);
+                }
+
+                let (forward_stream, log_source) = match source {
+                    StreamSources::Ide => (&mut self.adapter_stream, LogSource::Ide),
                     StreamSources::Adapter => {
                         // While replaying state to a new debug adapter, suppress responses — they
                         // weren't requested by the IDE and shouldn't reach it.
@@ -176,6 +188,7 @@ impl Proxy {
 
                             if self.state.is_last_replay_response(&message) {
                                 self.runtime_status = RuntimeStatus::Debugging;
+                                self.is_adapter_initialized = true;
                                 log!(
                                     LogSource::Proxy,
                                     LogLevel::Debug,
@@ -216,10 +229,12 @@ impl Proxy {
         );
 
         if let Some(stream) = &mut self.ide_stream {
+            let mut fake_sequence: Vec<DapMessage> = Vec::new();
+
             match message {
                 // Specifically for Initialize we want a differnet behavior:
                 // 1. Instead of generic "acknowledgement" response, we send the response to the first "initialize" request the IDE made in this session.
-                // 2. On top of the response message, we also send an "Initialized" event message, to let the IDE know the adapter is ready for the rest of configuration.
+                // 2. On top of the response message, we also send "Capabilities" and "Initialized" event messages, to properly convince the IDE it is connected again.
                 DapMessage::Request {
                     seq,
                     command: RequestCommandTypes::Initialize,
@@ -227,28 +242,33 @@ impl Proxy {
                 } => {
                     if let Some(response) = self.state.get_initialize_response() {
                         // We clone the response to the original "initiate" request, and making sure it's "request_seq" is the new request's seq.
-                        let response = response.clone_with_new_seq(Some(seq));
+                        fake_sequence.push(response.clone_with_new_seq(Some(seq)));
 
-                        stream
-                            .write(&response)
-                            .await
-                            .context("Could not write a message to a stream")?;
+                        if let Some(capabilities) = self.state.get_capabilities_event() {
+                            fake_sequence.push(capabilities.clone_with_new_seq(None));
+                        }
 
-                        // TODO: Send "initialized" event at this point.
+                        fake_sequence.push(DapMessage::make_initialized_event());
                     }
                 }
+                // For all other requests, we just send an aknowledgement response
+                DapMessage::Request { ref command, .. } => {
+                    fake_sequence.push(DapMessage::make_response(message.seq(), command.as_str()));
+                }
+                _ => {}
+            };
 
-                // In all other cases, we just send an aknowledgement response
-                _ => {
-                    let response = DapMessage::make_acknowledgement_response(message.seq());
-
+            if fake_sequence.len() > 0 {
+                for message in fake_sequence {
                     stream
-                        .write(&response)
+                        .write(&message)
                         .await
                         .context("Could not write a message to a stream")?;
+
+                    log!(LogSource::Proxy, LogLevel::Verbose, "Faked: {}", message);
                 }
-            };
-        }
+            }
+        };
 
         Ok(())
     }
@@ -264,11 +284,10 @@ impl Proxy {
                     ..
                 } => true,
 
-                // If one of the following requests were received from the IDE, while runtime status is ::Debugging
-                // it can only mean one thing - the IDE is in the process of re-connection (which is different than
-                // initial connection), we know it is re-connection because the first-connection is what started the
-                // debug session, when these messages are coming in the first time, runtime is still in ::Spawned or
-                // ::Pending status, and in that case, all messages should be forwarded normally (not absorbed).
+                // If one of the following requests were received from the IDE while the adapter
+                // has already been initialized, it means the IDE is re-connecting to an existing
+                // debug session. These messages are absorbed (not forwarded) and responded to
+                // with fake responses, since the adapter is already configured and running.
                 DapMessage::Request {
                     command:
                         RequestCommandTypes::Initialize
@@ -276,7 +295,7 @@ impl Proxy {
                         | RequestCommandTypes::Launch
                         | RequestCommandTypes::ConfigurationDone,
                     ..
-                } if self.runtime_status == RuntimeStatus::Debugging => true,
+                } if self.is_adapter_initialized => true,
 
                 _ => false,
             };
@@ -311,6 +330,8 @@ impl Proxy {
                             .await
                             .context("Unable to connect to the debugger process")?,
                     );
+
+                    self.is_adapter_initialized = false;
 
                     log!(
                         LogSource::Proxy,
@@ -374,7 +395,7 @@ impl Proxy {
             _ => {}
         }
 
-        self.state.clear();
+        self.state.reset();
 
         Ok(())
     }
