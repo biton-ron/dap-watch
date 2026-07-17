@@ -155,6 +155,29 @@ impl Proxy {
                 return self.fake_adapter_response(message).await;
             }
 
+            // While replaying state to a new debug adapter, suppress responses, they weren't requested by the IDE and shouldn't reach it.
+            Ok(ReadResult::Message(message))
+                if source == StreamSources::Adapter && self.runtime_status == RuntimeStatus::Replaying =>
+            {
+                log!(
+                    LogSource::Adapter,
+                    LogLevel::Verbose,
+                    "Suppressed message during replay: {}",
+                    message
+                );
+
+                // We stop replaying once the response for the very last replay message has arrived from the adapter.
+                if self.state.is_last_replay_response(&message) {
+                    self.runtime_status = RuntimeStatus::Debugging;
+                    self.is_adapter_initialized = true;
+                    log!(
+                        LogSource::Proxy,
+                        LogLevel::Debug,
+                        "Message replay has finished successfully"
+                    );
+                }
+            }
+
             // Forwarding logic
             Ok(ReadResult::Message(message)) => {
                 // ConfigurationDone marks the final request in the configuration sequence from the IDE.
@@ -169,41 +192,16 @@ impl Proxy {
                     self.is_adapter_initialized = true;
                 }
 
-                if let Ok(Some(command)) = self.state.capture(&message) {
-                    log!(LogSource::Proxy, LogLevel::Debug, "State captured: {}", command);
+                if self.state.capture(&message) {
+                    log!(LogSource::Proxy, LogLevel::Debug, "State captured: {}", message);
                 }
 
+                // Forward to the other side — as long as the target stream is alive and we're not suppressing (replay).
                 let (forward_stream, log_source) = match source {
                     StreamSources::Ide => (&mut self.adapter_stream, LogSource::Ide),
-                    StreamSources::Adapter => {
-                        // While replaying state to a new debug adapter, suppress responses — they
-                        // weren't requested by the IDE and shouldn't reach it.
-                        if self.runtime_status == RuntimeStatus::Replaying {
-                            log!(
-                                LogSource::Adapter,
-                                LogLevel::Debug,
-                                "Suppressed message during replay: {}",
-                                message
-                            );
-
-                            if self.state.is_last_replay_response(&message) {
-                                self.runtime_status = RuntimeStatus::Debugging;
-                                self.is_adapter_initialized = true;
-                                log!(
-                                    LogSource::Proxy,
-                                    LogLevel::Debug,
-                                    "Message replay has finished successfully"
-                                );
-                            }
-
-                            return Ok(());
-                        }
-
-                        (&mut self.ide_stream, LogSource::Adapter)
-                    }
+                    StreamSources::Adapter => (&mut self.ide_stream, LogSource::Adapter),
                 };
 
-                // Forward to the other side — as long as the target stream is alive and we're not suppressing (replay).
                 if let Some(forward_stream) = forward_stream {
                     forward_stream
                         .write(&message)
@@ -419,6 +417,12 @@ impl Proxy {
                 if replay_sequence.len() > 0 {
                     for message in replay_sequence {
                         stream.write(message).await.context("Replaying a message has failed")?;
+                        log!(
+                            LogSource::Proxy,
+                            LogLevel::Verbose,
+                            "Replaying state to adapter: {}",
+                            message
+                        );
                     }
 
                     return Ok(());

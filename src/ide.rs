@@ -6,7 +6,7 @@ use tokio::{
     net::TcpListener,
 };
 
-#[derive(Default, PartialEq)]
+#[derive(Default, PartialEq, Debug)]
 pub enum IdeStatus {
     #[default]
     Pending,

@@ -1,11 +1,8 @@
-use std::collections::HashMap;
-
-use anyhow::Result;
-
 use crate::dap_message::{
     DapMessage::{self},
     EventTypes, RequestCommandTypes,
 };
+use std::collections::HashMap;
 
 #[derive(Default, Debug)]
 pub struct ProxyState {
@@ -29,8 +26,8 @@ pub struct ProxyState {
 
 impl ProxyState {
     /// Captures relevant IDE messages into debug state for replay.
-    /// Returns the message back if state was affected, `None` otherwise.
-    pub fn capture(&mut self, message: &DapMessage) -> Result<Option<DapMessage>> {
+    /// Returns true in case state was affected, false if not.
+    pub fn capture(&mut self, message: &DapMessage) -> bool {
         let stored_message = message.clone();
 
         match message {
@@ -58,7 +55,7 @@ impl ProxyState {
                 }
 
                 if !matches!(command, RequestCommandTypes::PassForward(_)) {
-                    return Ok(Some(message.clone()));
+                    return true;
                 }
             }
             DapMessage::Response { request_seq, .. } => {
@@ -68,7 +65,7 @@ impl ProxyState {
                     && initialize.seq() == *request_seq
                 {
                     self.initialize_response = Some(stored_message);
-                    return Ok(Some(message.clone()));
+                    return true;
                 }
             }
             DapMessage::Event {
@@ -76,12 +73,12 @@ impl ProxyState {
                 ..
             } => {
                 self.capabilities_event = Some(stored_message);
-                return Ok(Some(message.clone()));
+                return true;
             }
             _ => {}
         }
 
-        Ok(None)
+        false
     }
 
     /// Get breakpoints file list
@@ -177,12 +174,12 @@ mod test {
         let breakpoints = make_request(6, RequestCommandTypes::SetBreakpoints(String::from("testfile.rs")));
         let configuration_done = make_request(7, RequestCommandTypes::ConfigurationDone);
 
-        state.capture(&initialize).unwrap();
-        state.capture(&launch).unwrap();
-        state.capture(&exception_breakpoints).unwrap();
-        state.capture(&function_breakpoints).unwrap();
-        state.capture(&breakpoints).unwrap();
-        state.capture(&configuration_done).unwrap();
+        state.capture(&initialize);
+        state.capture(&launch);
+        state.capture(&exception_breakpoints);
+        state.capture(&function_breakpoints);
+        state.capture(&breakpoints);
+        state.capture(&configuration_done);
 
         assert_eq!(state.initialize, Some(initialize));
         assert_eq!(state.launch, Some(launch));
@@ -206,8 +203,8 @@ mod test {
 
         let file_b_breakpoints = make_request(2, RequestCommandTypes::SetBreakpoints(String::from("file_b.rs")));
 
-        state.capture(&file_a_breakpoints).unwrap();
-        state.capture(&file_b_breakpoints).unwrap();
+        state.capture(&file_a_breakpoints);
+        state.capture(&file_b_breakpoints);
 
         assert!(
             state
@@ -229,7 +226,7 @@ mod test {
         let mut state = ProxyState::default();
         let message = make_request(1, PassForward(String::from("Evaluate")));
 
-        assert!(state.capture(&message).unwrap().is_none());
+        assert_eq!(state.capture(&message), false);
     }
 
     #[test]
@@ -241,7 +238,7 @@ mod test {
             raw_bytes: vec![],
         };
 
-        assert!(state.capture(&message).unwrap().is_none());
+        assert_eq!(state.capture(&message), false);
     }
 
     #[test]
@@ -253,7 +250,7 @@ mod test {
             event: EventTypes::Output(String::from("Test Output")),
         };
 
-        assert!(state.capture(&message).unwrap().is_none());
+        assert_eq!(state.capture(&message), false);
     }
 
     // get_replay_sequence tests
@@ -266,10 +263,10 @@ mod test {
         let configuration_done = make_request(3, RequestCommandTypes::ConfigurationDone);
         let breakpoints_b = make_request(4, RequestCommandTypes::SetBreakpoints(String::from("testfile_b.rs")));
 
-        state.capture(&initialize).unwrap();
-        state.capture(&breakpoints_a).unwrap();
-        state.capture(&configuration_done).unwrap();
-        state.capture(&breakpoints_b).unwrap();
+        state.capture(&initialize);
+        state.capture(&breakpoints_a);
+        state.capture(&configuration_done);
+        state.capture(&breakpoints_b);
 
         let sequence = state.get_replay_sequence();
 
@@ -297,13 +294,13 @@ mod test {
         let configuration_done = make_request(6, RequestCommandTypes::ConfigurationDone);
         let breakpoints_b = make_request(7, RequestCommandTypes::SetBreakpoints(String::from("testfile_b.rs")));
 
-        state.capture(&initialize).unwrap();
-        state.capture(&launch).unwrap();
-        state.capture(&exception_breakpoints).unwrap();
-        state.capture(&function_breakpoints).unwrap();
-        state.capture(&breakpoints_a).unwrap();
-        state.capture(&configuration_done).unwrap();
-        state.capture(&breakpoints_b).unwrap();
+        state.capture(&initialize);
+        state.capture(&launch);
+        state.capture(&exception_breakpoints);
+        state.capture(&function_breakpoints);
+        state.capture(&breakpoints_a);
+        state.capture(&configuration_done);
+        state.capture(&breakpoints_b);
 
         let sequence = state.get_replay_sequence();
 
@@ -334,8 +331,8 @@ mod test {
         let initialize = make_request(1, RequestCommandTypes::Initialize);
         let configuration_done = make_request(3, RequestCommandTypes::ConfigurationDone);
 
-        state.capture(&initialize).unwrap();
-        state.capture(&configuration_done).unwrap();
+        state.capture(&initialize);
+        state.capture(&configuration_done);
 
         _ = state.get_replay_sequence();
 
@@ -376,8 +373,8 @@ mod test {
         let initialize = make_request(1, RequestCommandTypes::Initialize);
         let configuration_done = make_request(3, RequestCommandTypes::ConfigurationDone);
 
-        state.capture(&initialize).unwrap();
-        state.capture(&configuration_done).unwrap();
+        state.capture(&initialize);
+        state.capture(&configuration_done);
 
         let response = DapMessage::Response {
             seq: 5,
