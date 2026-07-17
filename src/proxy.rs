@@ -3,8 +3,11 @@ use std::process::ExitStatus;
 use tokio::{select, task::JoinHandle};
 
 use crate::{
-    config::{MainConfig, RuntimeModes},
-    dap_message::{DapMessage, RequestCommandTypes},
+    config::{
+        MainConfig,
+        RuntimeModes::{self},
+    },
+    dap_message::{DapMessage, EventTypes, RequestCommandTypes},
     dap_stream::{DapStream, ReadResult},
     file_watcher::FileWatcher,
     ide::{IdeHandler, IdeStatus},
@@ -156,26 +159,11 @@ impl Proxy {
             }
 
             // While replaying state to a new debug adapter, suppress responses, they weren't requested by the IDE and shouldn't reach it.
+            // Then the response for the last replay message coming in, we resume message forwarding by change the runtime status (see surpress_replay_responses for reference).
             Ok(ReadResult::Message(message))
                 if source == StreamSources::Adapter && self.runtime_status == RuntimeStatus::Replaying =>
             {
-                log!(
-                    LogSource::Adapter,
-                    LogLevel::Verbose,
-                    "Suppressed message during replay: {}",
-                    message
-                );
-
-                // We stop replaying once the response for the very last replay message has arrived from the adapter.
-                if self.state.is_last_replay_response(&message) {
-                    self.runtime_status = RuntimeStatus::Debugging;
-                    self.is_adapter_initialized = true;
-                    log!(
-                        LogSource::Proxy,
-                        LogLevel::Debug,
-                        "Message replay has finished successfully"
-                    );
-                }
+                self.surpress_replay_responses(&message).await
             }
 
             // Forwarding logic
@@ -210,11 +198,47 @@ impl Proxy {
 
                     log!(log_source, LogLevel::Verbose, "{}", message);
                 }
+
+                // In headeless mode we want to interecept output events, making sure that program output is printed to the std during debug session.
+                self.log_output_messages(message);
             }
             Err(e) => bail!(e),
         }
 
         Ok(())
+    }
+
+    // In headless mode, checks if message contains an Output event, if so - prints the message as program output.
+    fn log_output_messages(&self, message: DapMessage) {
+        if self.is_headless_mode()
+            && let DapMessage::Event {
+                event: EventTypes::Output(output),
+                ..
+            } = message
+        {
+            log!(LogSource::Program, LogLevel::Default, false, "{}", output);
+        }
+    }
+
+    // While replaying state to a new debug adapter, suppress responses, they weren't requested by the IDE and shouldn't reach it.
+    async fn surpress_replay_responses(&mut self, message: &DapMessage) {
+        log!(
+            LogSource::Adapter,
+            LogLevel::Verbose,
+            "Suppressed message during replay: {}",
+            message
+        );
+
+        // We stop replaying once the response for the very last replay message has arrived from the adapter.
+        if self.state.is_last_replay_response(&message) {
+            self.runtime_status = RuntimeStatus::Debugging;
+            self.is_adapter_initialized = true;
+            log!(
+                LogSource::Proxy,
+                LogLevel::Debug,
+                "Message replay has finished successfully"
+            );
+        }
     }
 
     /// Sends a fake response on behalf of the adapter, based on the received message from the IDE.
@@ -273,7 +297,7 @@ impl Proxy {
 
     /// Determines weither a message coming from the IDE shoudld be forwarded to the adapter, or weither we would like the adapter to not know about this message.
     fn should_absorb_request(&self, message: &DapMessage) -> bool {
-        if let RuntimeModes::Headless { .. } = &self.config.runtime.mode {
+        if self.is_headless_mode() {
             return match message {
                 // Intercept disconnect so the adapter stays alive.
                 // A fake response lets the IDE close gracefully, then the subsequent EOF triggers handle_ide_disconnection for cleanup.
@@ -446,7 +470,7 @@ impl Proxy {
     async fn log_and_notify(&mut self, log_source: LogSource, message: impl Into<String>) -> Result<()> {
         let message = message.into();
 
-        if let RuntimeModes::Headless { .. } = &self.config.runtime.mode {
+        if self.is_headless_mode() {
             log!(log_source, "{}", message);
         }
 
@@ -487,6 +511,15 @@ impl Proxy {
             Some(handler) => handler.await?,
             None => std::future::pending().await,
         }
+    }
+
+    /// Check runtime config to determine if we're on headless mode
+    fn is_headless_mode(&self) -> bool {
+        if let RuntimeModes::Headless { .. } = self.config.runtime.mode {
+            return true;
+        }
+
+        false
     }
 
     async fn graceful_shutdown(&mut self) -> Result<()> {

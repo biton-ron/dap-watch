@@ -4,7 +4,7 @@
 
 - [x] Rebuild during attach/debug mode
 - [x] Handle IDE disconnection on headless mode.
-- [ ] Program output channel (mpsc from Runtime to Proxy)
+- [x] Program output channel (mpsc from Runtime to Proxy)
 - [ ] Operational logs to debug console (DAP output events)
 - [ ] Graceful shutdown (Ctrl+C)
 
