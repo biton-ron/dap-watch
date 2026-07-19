@@ -80,6 +80,8 @@ impl Proxy {
 
     /// Main proxy loop, orchestrates IDE <-> Adapter communication, FileWatcher events handling, and Runtime spawning & rebuilds.
     pub async fn run(&mut self) -> Result<()> {
+        self.watcher.watch().context("Unable to start file watching")?;
+
         if let RuntimeModes::Headless { port, .. } = self.config.runtime.mode {
             log!(LogSource::Proxy, "Proxy is listening on :{}", port);
         }

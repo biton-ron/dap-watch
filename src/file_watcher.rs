@@ -28,20 +28,33 @@ impl FileWatcher {
         })
         .context("notify could not establish a watcher")?;
 
-        let mut file_watcher = FileWatcher {
+        Ok(FileWatcher {
             config: config.clone(),
             receiver,
             watcher,
-        };
+        })
+    }
 
-        // TODO: Take watch patterns from configuration
-        // TODO: Optionally respect .gitignore
-        file_watcher
-            .watcher
-            .watch(Path::new("./src/bin"), RecursiveMode::Recursive)
-            .context("Failed to watch ./src/bin directory")?;
+    /// Iterates through the configured paths and register them for file change events through the watcher
+    pub fn watch(&mut self) -> Result<()> {
+        for path in self.config.paths.iter() {
+            self.watcher
+                .watch(Self::get_path_from_pattern(&path), RecursiveMode::Recursive)
+                .with_context(|| format!("Failed to watch path: {}", path))?;
+        }
 
-        Ok(file_watcher)
+        Ok(())
+    }
+
+    /// Extracts the base directory from a glob pattern by splitting at the first wildcard.
+    /// For example: `src/**/*.rs` → `src/`, `*.rs` → `` (current directory), `some_file.rs` -> `some_file.rs` (exact match, no pattern).
+    fn get_path_from_pattern(pattern: &str) -> &Path {
+        let base_path = pattern
+            .split("*")
+            .next()
+            .expect("Any string must have at least one part when splitting");
+
+        Path::new(base_path)
     }
 
     pub async fn next(&mut self) -> Result<()> {
