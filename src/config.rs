@@ -113,10 +113,10 @@ impl MainConfig {
                 // mode: RuntimeModes::Stdio,
             },
             watcher: WatcherConfig {
-                paths: vec![String::from("./src/**.rs")],
-                ignore_paths: vec![],
+                paths: vec![String::from("./src/*.rs")],
+                ignore_paths: vec![String::from("./src/file_watcher.rs")],
                 gitignore: true,
-                debounce_ms: 500,
+                debounce_ms: 200,
             },
         }
     }
