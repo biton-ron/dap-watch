@@ -1,0 +1,179 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 750 500" width="100%">
+  <defs>
+    <clipPath id="terminal">
+      <rect width="750" height="500" rx="10" />
+    </clipPath>
+  </defs>
+  <style>
+    text {
+      font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+      font-size: 13px;
+    }
+  </style>
+  <g clip-path="url(#terminal)">
+    <!-- Background -->
+    <rect width="750" height="500" fill="#1a1b26" />
+
+    <!-- Title bar -->
+    <rect width="750" height="36" fill="#24283b" />
+    <circle cx="20" cy="18" r="6" fill="#f7768e" />
+    <circle cx="40" cy="18" r="6" fill="#e0af68" />
+    <circle cx="60" cy="18" r="6" fill="#9ece6a" />
+    <text x="375" y="22" text-anchor="middle" fill="#7982a9" font-size="12">dap-watch --verbose</text>
+
+    <!-- L1: Proxy | Listening on :2500 -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.014;0.023;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="24" y="56" fill="#e0af68">Proxy</text>
+      <text x="148" y="56" fill="#565f89">|</text>
+      <text x="164" y="56" fill="#c0caf5">Listening on :2500</text>
+    </g>
+
+    <!-- L2: Watcher | Watching src/**/*.rs -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.032;0.041;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="24" y="76" fill="#9ece6a">Watcher</text>
+      <text x="148" y="76" fill="#565f89">|</text>
+      <text x="164" y="76" fill="#c0caf5">Watching src/**/*.rs</text>
+    </g>
+
+    <!-- L3: Program | Server started -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.055;0.064;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="24" y="96" fill="#7dcfff">Program</text>
+      <text x="148" y="96" fill="#565f89">|</text>
+      <text x="164" y="96" fill="#c0caf5">Server started on http://127.0.0.1:3000</text>
+    </g>
+
+    <!-- L4: Proxy | IDE connected -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.114;0.123;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="24" y="128" fill="#e0af68">Proxy</text>
+      <text x="148" y="128" fill="#565f89">|</text>
+      <text x="164" y="128" fill="#c0caf5">IDE connected</text>
+    </g>
+
+    <!-- L5: IDE -> Adapter | setBreakpoints -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.136;0.145;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="24" y="148" fill="#bb9af7">IDE -&gt; Adapter</text>
+      <text x="148" y="148" fill="#565f89">|</text>
+      <text x="164" y="148" fill="#c0caf5">setBreakpoints (handler.rs:24, handler.rs:51)</text>
+    </g>
+
+    <!-- L6: IDE -> Adapter | configurationDone -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.150;0.159;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="24" y="168" fill="#bb9af7">IDE -&gt; Adapter</text>
+      <text x="148" y="168" fill="#565f89">|</text>
+      <text x="164" y="168" fill="#c0caf5">configurationDone</text>
+    </g>
+
+    <!-- L7: Program | GET request -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.173;0.182;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="24" y="188" fill="#7dcfff">Program</text>
+      <text x="148" y="188" fill="#565f89">|</text>
+      <text x="164" y="188" fill="#c0caf5">GET  /api/users</text>
+      <text x="332" y="188" fill="#9ece6a">200</text>
+      <text x="362" y="188" fill="#565f89">(3ms)</text>
+    </g>
+
+    <!-- L8: Program | POST request -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.191;0.200;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="24" y="208" fill="#7dcfff">Program</text>
+      <text x="148" y="208" fill="#565f89">|</text>
+      <text x="164" y="208" fill="#c0caf5">POST /api/users</text>
+      <text x="332" y="208" fill="#9ece6a">201</text>
+      <text x="362" y="208" fill="#565f89">(8ms)</text>
+    </g>
+
+    <!-- L9: Separator -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.227;0.236;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="375" y="234" text-anchor="middle" fill="#3b4261">&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472; debugging session active &#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;</text>
+    </g>
+
+    <!-- L10: Watcher | File changed -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.318;0.327;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="24" y="266" fill="#9ece6a">Watcher</text>
+      <text x="148" y="266" fill="#565f89">|</text>
+      <text x="164" y="266" fill="#f7768e">File changed, rebuilding...</text>
+    </g>
+
+    <!-- L11: Proxy | Build successful, new adapter spawned -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.364;0.373;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="24" y="286" fill="#e0af68">Proxy</text>
+      <text x="148" y="286" fill="#565f89">|</text>
+      <text x="164" y="286" fill="#c0caf5">Build successful, new adapter spawned</text>
+    </g>
+
+    <!-- L12: Proxy | Replaying state to adapter: -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.395;0.405;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="24" y="314" fill="#e0af68">Proxy</text>
+      <text x="148" y="314" fill="#565f89">|</text>
+      <text x="164" y="314" fill="#c0caf5">Replaying state to adapter:</text>
+    </g>
+
+    <!-- L13: Replay | -> initialize -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.409;0.418;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="40" y="334" fill="#7aa2f7">Replay</text>
+      <text x="148" y="334" fill="#565f89">|</text>
+      <text x="164" y="334" fill="#7aa2f7">&#8594; initialize</text>
+    </g>
+
+    <!-- L14: Replay | -> launch -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.423;0.432;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="40" y="354" fill="#7aa2f7">Replay</text>
+      <text x="148" y="354" fill="#565f89">|</text>
+      <text x="164" y="354" fill="#7aa2f7">&#8594; launch</text>
+    </g>
+
+    <!-- L15: Replay | -> setBreakpoints -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.436;0.445;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="40" y="374" fill="#7aa2f7">Replay</text>
+      <text x="148" y="374" fill="#565f89">|</text>
+      <text x="164" y="374" fill="#7aa2f7">&#8594; setBreakpoints (handler.rs:24, handler.rs:51)</text>
+    </g>
+
+    <!-- L16: Replay | -> configurationDone -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.450;0.459;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="40" y="394" fill="#7aa2f7">Replay</text>
+      <text x="148" y="394" fill="#565f89">|</text>
+      <text x="164" y="394" fill="#7aa2f7">&#8594; configurationDone</text>
+    </g>
+
+    <!-- L17: Proxy | State replay complete -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.482;0.491;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="24" y="420" fill="#e0af68">Proxy</text>
+      <text x="148" y="420" fill="#565f89">|</text>
+      <text x="164" y="420" fill="#73daca">State replay complete</text>
+    </g>
+
+    <!-- L18: Program | Server started again -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.509;0.518;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="24" y="440" fill="#7dcfff">Program</text>
+      <text x="148" y="440" fill="#565f89">|</text>
+      <text x="164" y="440" fill="#c0caf5">Server started on http://127.0.0.1:3000</text>
+    </g>
+
+    <!-- L19: Success message -->
+    <g opacity="0">
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.545;0.555;0.773;0.841;1" dur="22s" repeatCount="indefinite" />
+      <text x="375" y="476" text-anchor="middle" fill="#73daca" font-size="14">&#10003; Same breakpoints. Server back online.</text>
+    </g>
+  </g>
+
+  <!-- Border -->
+  <rect width="750" height="500" rx="10" fill="none" stroke="#3b4261" stroke-width="1" />
+</svg>
