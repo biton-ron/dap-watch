@@ -82,7 +82,7 @@ The editor spawns dap-watch as a child process and communicates over stdin/stdou
 
 - **Single-threaded Tokio runtime.** Everything runs on one thread through `select!`. No locks, no shared mutable state. The proxy owns everything.
 
-- **Replay over sync.** Instead of patching a running adapter with incremental changes, dap-watch kills and respawns it, then replays the full state sequence from scratch. Simpler and more predictable.
+- **Full state replay.** On rebuild, dap-watch kills the adapter and spawns a fresh one, then replays the entire captured state sequence (initialize, breakpoints, launch, configurationDone) in the correct order.
 
 - **Attach-to-launch conversion.** In headless mode the editor sends `attach` requests, but after a rebuild there's no running process to attach to. dap-watch converts the captured `attach` into a `launch` so the adapter starts the program _after_ breakpoints are configured. No missed breakpoints on startup code.
 
