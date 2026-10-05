@@ -7,7 +7,7 @@ Written in Rust with Tokio. Single binary.
 > **Work in progress.** Core functionality works end to end. See [TASKS.md](TASKS.md) for what's remaining.
 
 <p align="center">
-  <img src="assets/demo.svg" alt="dap-watch in action" width="100%">
+  <img src="assets/demo.svg?v=3" alt="dap-watch in action" width="100%">
 </p>
 
 ## Why

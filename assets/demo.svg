@@ -17,7 +17,7 @@
     <!-- Title bar -->
     <rect width="750" height="36" fill="#24283b" />
     <circle cx="20" cy="18" r="6" fill="#f7768e" />
-    <circle cx="25" cy="18" r="6" fill="#e0af68" />
+    <circle cx="40" cy="18" r="6" fill="#e0af68" />
     <circle cx="60" cy="18" r="6" fill="#9ece6a" />
     <text x="375" y="22" text-anchor="middle" fill="#7982a9" font-size="12">dap-watch --verbose</text>
 
