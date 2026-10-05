@@ -1,6 +1,6 @@
 # dap-watch
 
-A debug proxy for compiled languages. Sits between your editor and debug adapter, watches your source files, and when something changes: rebuilds the project, restarts the debug adapter, and replays your debug state (breakpoints, launch config, etc.) so your session picks up where it left off.
+A DAP (Debug Adapter Protocol) proxy with file watching. Sits between your editor and debug adapter, watches your source files, and when something changes: rebuilds the project, restarts the debug adapter, and replays your debug state (breakpoints, launch config, etc.) so your session picks up where it left off.
 
 Written in Rust with Tokio. Single binary.
 
